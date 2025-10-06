@@ -1,0 +1,125 @@
+name: "Intelligent Crawler"
+
+on:
+  workflow_dispatch:
+    inputs:
+      FROM_ID:
+        description: "ID sách bắt đầu"
+        required: true
+        default: "1"
+      TO_ID:
+        description: "ID sách kết thúc"
+        required: true
+        default: "10"
+      THREADS:
+        description: "Số luồng tải ảnh đồng thời (max threads)"
+        required: true
+        default: "16"
+
+env:
+  TZ: Asia/Ho_Chi_Minh
+  PYTHONUNBUFFERED: "1"
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+
+jobs:
+  crawl:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 720
+    env:
+      FROM_ID: ${{ github.event.inputs.FROM_ID }}
+      TO_ID: ${{ github.event.inputs.TO_ID }}
+      THREADS: ${{ github.event.inputs.THREADS }}
+      BHLNK_EMAIL: ${{ secrets.BHLNK_EMAIL }}
+      BHLNK_PASSWORD: ${{ secrets.BHLNK_PASSWORD }}
+      PYTHONPATH: ${{ github.workspace }}
+      RCLONE_DEST: ${{ secrets.RCLONE_DEST || '1drive:/LSC_Books' }}
+
+    steps:
+      - name: Maximize build space
+        uses: easimon/maximize-build-space@master
+        with:
+          root-reserve-mb: 512
+          swap-size-mb: 1024
+          remove-dotnet: "true"
+          remove-android: "true"
+          remove-haskell: "true"
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          repository: 'proplayer1131/sachyhocpdf_downloader-main'
+          token: ${{ secrets.ACTION_TOKEN }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y python3-tk jq
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install -U pip
+          pip install requests Pillow
+          if [ -f requirements.txt ]; then
+            grep -v -E 'tkinter|pywin32|win32mica|upx|customtkinter|futures|tqdm' requirements.txt > requirements_linux.txt
+            pip install -r requirements_linux.txt
+          fi
+
+      - name: Install and configure rclone
+        env:
+          RCLONE_CONF_CONTENTS: ${{ secrets.RCLONE_CONF }}
+        run: |
+          curl -fsSL https://rclone.org/install.sh | sudo bash
+          mkdir -p ~/.config/rclone
+          printf "%s" "$RCLONE_CONF_CONTENTS" > ~/.config/rclone/rclone.conf
+          rclone version
+
+      - name: Run Intelligent Crawl Script
+        run: python -u scripts/crawl_range.py | tee crawl.log
+
+      - name: Upload downloaded books and create summary
+        run: |
+          set -euo pipefail
+          SUMMARY_MD="SUMMARY_run_${{ github.run_id }}.md"
+          echo "# 📚 Crawl Summary (run ${{ github.run_id }})" > "$SUMMARY_MD"
+          echo "| ID | Title | Folder Link | Chapters |" >> "$SUMMARY_MD"
+          echo "|---:|-------|-------------|----------|" >> "$SUMMARY_MD"
+
+          find . -maxdepth 2 -type f -name 'book_info.json' | while read -r info_file; do
+            book_folder=$(dirname "$info_file")
+            if ! ls "${book_folder}"/*.pdf &> /dev/null; then
+                continue
+            fi
+
+            folder_name=$(basename "$book_folder")
+            
+            echo "Processing folder: ${folder_name}"
+            
+            TARGET="${RCLONE_DEST}/${folder_name}"
+            echo "Uploading ${folder_name} to ${TARGET}"
+            rclone copy "${book_folder}" "${TARGET}" --transfers=8 --checkers=16 --progress
+            
+            book_id=$(jq -r '.id' "$info_file")
+            book_title=$(jq -r '.name' "$info_file")
+            
+            folder_link=$(rclone link "${TARGET}" 2>/dev/null || echo "N/A")
+            
+            chapters_md=""
+            pdf_files=$(find "${book_folder}" -name "*.pdf" | sort)
+            if [ -n "$pdf_files" ]; then
+                chapters_md=$(echo "$pdf_files" | xargs -n 1 basename | sed 's/$/<br>/' | tr -d '\n')
+            fi
+            
+            printf "| %s | %s | [%s](%s) | %s |\n" "$book_id" "$book_title" "$folder_name" "$folder_link" "$chapters_md" >> "$SUMMARY_MD"
+          done
+          
+          if [ -s "$SUMMARY_MD" ]; then
+            SUM_DIR="${RCLONE_DEST}/_summaries"
+            rclone mkdir "$SUM_DIR" || true
+            rclone copyto "$SUMMARY_MD" "${SUM_DIR}/${SUMMARY_MD}" --progress
+            echo "Summary file uploaded to ${SUM_DIR}"
+          else
+            echo "No books were downloaded or updated. Skipping summary upload."
+          fi
