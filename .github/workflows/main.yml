@@ -1,0 +1,127 @@
+name: "Intelligent Download Book"
+
+on:
+  workflow_dispatch:
+    inputs:
+      BOOK_ID:
+        description: "BOOK_ID to download"
+        required: true
+        default: "1"
+      DOWNLOAD_MODE:
+        description: "Chọn chế độ tải"
+        required: true
+        default: "per_chapter"
+        type: choice
+        options:
+          - per_chapter
+          - single
+      THREADS:
+        description: "Số luồng tải ảnh đồng thời (max threads)"
+        required: true
+        default: "8"
+
+env:
+  TZ: Asia/Ho_Chi_Minh
+  PYTHONUNBUFFERED: "1"
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+
+jobs:
+  download:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 720
+    env:
+      BOOK_ID: ${{ github.event.inputs.BOOK_ID }}
+      DOWNLOAD_MODE: ${{ github.event.inputs.DOWNLOAD_MODE }}
+      THREADS: ${{ github.event.inputs.THREADS }}
+      BHLNK_EMAIL: ${{ secrets.BHLNK_EMAIL }}
+      BHLNK_PASSWORD: ${{ secrets.BHLNK_PASSWORD }}
+      PYTHONPATH: ${{ github.workspace }}
+      RCLONE_DEST: ${{ secrets.RCLONE_DEST || '1drive:/LSC_Books' }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          repository: 'proplayer1131/sachyhocpdf_downloader-main'
+          token: ${{ secrets.ACTION_TOKEN }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y python3-tk jq
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install -U pip
+          pip install requests Pillow
+          if [ -f requirements.txt ]; then
+            grep -v -E 'tkinter|pywin32|win32mica|upx|customtkinter|futures|tqdm' requirements.txt > requirements_linux.txt
+            pip install -r requirements_linux.txt
+          fi
+
+      - name: Install and configure rclone
+        env:
+          RCLONE_CONF_CONTENTS: ${{ secrets.RCLONE_CONF }}
+        run: |
+          curl -fsSL https://rclone.org/install.sh | sudo bash
+          mkdir -p ~/.config/rclone
+          printf "%s" "$RCLONE_CONF_CONTENTS" > ~/.config/rclone/rclone.conf
+          rclone version
+
+      - name: Run Intelligent Download Script
+        run: python -u scripts/download_one.py | tee download.log
+
+      - name: Upload book and create summary
+        run: |
+          set -euo pipefail
+          if [ ! -f "folder_name.txt" ]; then
+            echo "Không có sách nào được tải về (có thể do không có cập nhật). Bỏ qua."
+            exit 0
+          fi
+
+          FOLDER_NAME=$(cat folder_name.txt)
+          TARGET="${RCLONE_DEST}/${FOLDER_NAME}"
+          SUMMARY_MD="SUMMARY_run_${{ github.run_id }}_${BOOK_ID}.md"
+          
+          echo "Uploading to target: ${TARGET}"
+          
+          if [ -d "${FOLDER_NAME}" ]; then
+            rclone copy "${FOLDER_NAME}" "${TARGET}" --transfers=8 --checkers=16 --progress
+          elif ls *.pdf 1> /dev/null 2>&1; then
+            rclone copy "${FOLDER_NAME}" "${TARGET}" --transfers=8 --checkers=16 --progress
+            find . -maxdepth 1 -name "*.pdf" -print0 | while IFS= read -r -d $'\0' file; do
+              rclone copyto "$file" "${TARGET}/$(basename "$file")" --transfers=8 --checkers=16 --progress
+            done
+          fi
+          echo "Tải lên hoàn tất."
+
+          echo "# 📚 Download Summary (run ${{ github.run_id }})" > "$SUMMARY_MD"
+          echo "| ID | Title | Folder Link | Chapters |" >> "$SUMMARY_MD"
+          echo "|---:|-------|-------------|----------|" >> "$SUMMARY_MD"
+          
+          INFO_FILE_PATH="${FOLDER_NAME}/book_info.json"
+          
+          book_id=$(jq -r '.id' "$INFO_FILE_PATH")
+          book_title=$(jq -r '.name' "$INFO_FILE_PATH")
+          folder_link=$(rclone link "${TARGET}" 2>/dev/null || echo "N/A")
+          
+          chapters_md=""
+          pdf_files=$(find "${FOLDER_NAME}" -name "*.pdf" | sort)
+          if [ -n "$pdf_files" ]; then
+              chapters_md=$(echo "$pdf_files" | xargs -n 1 basename | sed 's/$/<br>/' | tr -d '\n')
+          else
+              pdf_files=$(find . -maxdepth 1 -name "*.pdf" | sort)
+              if [ -n "$pdf_files" ]; then
+                  chapters_md=$(echo "$pdf_files" | xargs -n 1 basename | sed 's/$/<br>/' | tr -d '\n')
+              fi
+          fi
+
+          printf "| %s | %s | [%s](%s) | %s |\n" "$book_id" "$book_title" "$FOLDER_NAME" "$folder_link" "$chapters_md" >> "$SUMMARY_MD"
+          
+          SUM_DIR="${RCLONE_DEST}/_summaries"
+          rclone mkdir "$SUM_DIR" || true
+          rclone copyto "$SUMMARY_MD" "${SUM_DIR}/${SUMMARY_MD}" --progress
+          echo "Summary file uploaded to ${SUM_DIR}"
