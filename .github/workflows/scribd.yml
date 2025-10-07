@@ -38,9 +38,7 @@ jobs:
 
     - name: Run downloader
       id: downloader
-      run: |
-        npm start "${{ steps.normalize.outputs.url }}"
-        # Không cần lấy tên file ở đây nữa
+      run: npm start "${{ steps.normalize.outputs.url }}"
 
     - name: Install and configure rclone
       env:
@@ -53,7 +51,7 @@ jobs:
     - name: Upload to 1Drive and get link
       id: onedrive
       run: |
-        BOOK_FILENAME=$(ls output/* | head -n 1) # Lấy tên file để upload
+        BOOK_FILENAME=$(ls output/* | head -n 1)
         rclone copy "$BOOK_FILENAME" "1drive:Scribd_download" --progress
         PUBLIC_LINK=$(rclone link "1drive:Scribd_download/$(basename "$BOOK_FILENAME")")
         echo "public_link=$PUBLIC_LINK" >> $GITHUB_OUTPUT
@@ -61,8 +59,13 @@ jobs:
     - name: Scrape Document Title
       id: scrape_title
       run: |
-        # Tải HTML, tìm dòng chứa tiêu đề, xóa tag HTML, và lưu vào output
-        TITLE=$(curl -sL "${{ steps.normalize.outputs.url }}" | grep -o '<h1.*>.*</h1>' | sed -e 's/<[^>]*>//g' | head -n 1)
+        # Lệnh mới chính xác hơn: tìm đúng khối h1, xóa tag, xóa dòng trống
+        TITLE=$(curl -sL "${{ steps.normalize.outputs.url }}" | \
+                sed -n '/<h1.*data-e2e="doc_page_title"/, /<\/h1>/p' | \
+                sed -e 's/<[^>]*>//g' | \
+                awk 'NF' | \
+                tr -d '\n' | \
+                xargs)
         echo "DOCUMENT_TITLE=$TITLE" >> $GITHUB_OUTPUT
 
     - name: Create Result Message
