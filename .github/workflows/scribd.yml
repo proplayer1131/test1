@@ -26,6 +26,7 @@ jobs:
     - name: Install dependencies
       run: npm install
 
+    # ===== ĐÃ THÊM MASK Ở ĐÂY =====
     - name: Normalize and Mask URL
       id: normalize
       run: |
@@ -34,7 +35,7 @@ jobs:
                                            -e 's,://[^.]\+\.scribd\.com,://www.scribd.com,' \
                                            -e 's,://[^.]\+\.slideshare\.net,://www.slideshare.net,' \
                                            -e 's,://[^.]\+\.everand\.com,://www.everand.com,')
-        # Thêm mask để che link gốc
+        # Thêm mask để che link gốc trong log
         echo "::add-mask::$NORMALIZED_URL"
         echo "url=$NORMALIZED_URL" >> $GITHUB_OUTPUT
 
@@ -50,6 +51,7 @@ jobs:
         mkdir -p ~/.config/rclone
         echo "$RCLONE_CONF" > ~/.config/rclone/rclone.conf
 
+    # ===== ĐÃ THÊM MASK Ở ĐÂY =====
     - name: Sanitize, Upload to 1Drive, and Mask Link
       id: onedrive
       run: |
@@ -58,19 +60,28 @@ jobs:
         if [ "$(basename "$ORIGINAL_FILENAME")" != "$SANITIZED_BASENAME" ]; then
           mv "$ORIGINAL_FILENAME" "output/$SANITIZED_BASENAME"
         fi
-        
         rclone copy "output/$SANITIZED_BASENAME" "1drive:Scribd_download" --progress
         PUBLIC_LINK=$(rclone link "1drive:Scribd_download/$SANITIZED_BASENAME")
         
-        # Thêm mask để che link tải
+        # Thêm mask để che link tải trong log
         echo "::add-mask::$PUBLIC_LINK"
         
         echo "public_link=$PUBLIC_LINK" >> $GITHUB_OUTPUT
+
+    - name: Scrape Document Title
+      id: scrape_title
+      run: |
+        TITLE=$(curl -sL "${{ steps.normalize.outputs.url }}" | \
+                tr '\n' ' ' | \
+                sed -n 's/.*<h1[^>]*data-e2e="doc_page_title"[^>]*>\(.*\)<\/h1>.*/\1/p' | \
+                sed -e 's/<[^>]*>//g' -e 's/^[ \t]*//;s/[ \t]*$//' -e 's/  */ /g')
+        echo "DOCUMENT_TITLE=$TITLE" >> $GITHUB_OUTPUT
 
     - name: Create Result Message
       if: success()
       run: |
         echo "✅ **Tải Sách Hoàn Tất**" > telegram_message.txt
+        echo "📖 **Sách:** ${{ steps.scrape_title.outputs.DOCUMENT_TITLE }}" >> telegram_message.txt
         echo "🔗 **Link:** [Nhấn vào đây](${{ steps.onedrive.outputs.public_link }})" >> telegram_message.txt
 
     - name: Upload Result Message
