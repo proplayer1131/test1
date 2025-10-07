@@ -1,6 +1,7 @@
 name: "Intelligent Download Book"
+
 concurrency:
-  group: ${{ github.workflow }}-login-pool
+  group: blick-login-pool
   cancel-in-progress: false
 
 on:
@@ -21,7 +22,7 @@ on:
       THREADS:
         description: "Số luồng tải ảnh đồng thời (max threads)"
         required: true
-        default: "64"
+        default: "64" # <-- ĐÃ THAY ĐỔI
 
 env:
   TZ: Asia/Ho_Chi_Minh
@@ -53,16 +54,28 @@ jobs:
         with:
           python-version: "3.11"
       
-      - name: Select Account from Pool
+      - name: Select Account and Mask Credentials
         id: select_account
         env:
           ACCOUNTS_SECRET: ${{ secrets.BHLNK_ACCOUNTS }}
+          RUN_NUMBER: ${{ github.run_number }}
         run: |
-          ACCOUNT_LINE=$(echo "${ACCOUNTS_SECRET}" | sed '/^\s*$/d' | shuf -n 1)
+          ACCOUNTS_LIST=$(echo "${ACCOUNTS_SECRET}" | sed '/^\s*$/d')
+          TOTAL_ACCOUNTS=$(echo "${ACCOUNTS_LIST}" | wc -l)
+          ACCOUNT_INDEX=$(( (RUN_NUMBER - 1) % TOTAL_ACCOUNTS ))
+          ACCOUNT_LINE=$(echo "${ACCOUNTS_LIST}" | awk "NR==$((ACCOUNT_INDEX + 1))")
+          
           BHLNK_EMAIL_VALUE=$(echo "$ACCOUNT_LINE" | cut -d: -f1)
           BHLNK_PASSWORD_VALUE=$(echo "$ACCOUNT_LINE" | cut -d: -f2-)
+          
+          # --- MỚI: Che email và password trong log ---
+          echo "::add-mask::${BHLNK_EMAIL_VALUE}"
+          echo "::add-mask::${BHLNK_PASSWORD_VALUE}"
+          
           echo "BHLNK_EMAIL=${BHLNK_EMAIL_VALUE}" >> $GITHUB_ENV
           echo "BHLNK_PASSWORD=${BHLNK_PASSWORD_VALUE}" >> $GITHUB_ENV
+          
+          echo "Run number: ${RUN_NUMBER}, Total accounts: ${TOTAL_ACCOUNTS}, Selected index: ${ACCOUNT_INDEX}"
           echo "Using account: ${BHLNK_EMAIL_VALUE}"
 
       - name: Install system dependencies
@@ -104,8 +117,8 @@ jobs:
             echo "Download status: $STATUS"
             echo "DOWNLOAD_STATUS=$STATUS" >> $GITHUB_OUTPUT
           else
-            echo "download_status.txt not found. Assuming failure."
-            echo "DOWNLOAD_STATUS=UNKNOWN_FAILURE" >> $GITHUB_OUTPUT
+            echo "download_status.txt not found. Assuming script failed."
+            echo "DOWNLOAD_STATUS=DOWNLOAD_FAILED" >> $GITHUB_OUTPUT
           fi
         shell: bash
 
@@ -120,23 +133,14 @@ jobs:
           FOLDER_NAME=$(cat folder_name.txt)
           CLEAN_FOLDER_NAME=$(echo "$FOLDER_NAME" | sed 's/[:*?"<>|]/_/g')
           TARGET="${RCLONE_DEST}/${CLEAN_FOLDER_NAME}"
-          
           echo "Uploading '${FOLDER_NAME}' to '${TARGET}'..."
           rclone copy "${FOLDER_NAME}" "${TARGET}" --transfers=8 --checkers=16 --progress
           echo "Tải lên hoàn tất."
-          
           INFO_FILE_PATH="${FOLDER_NAME}/book_info.json"
-          
           BOOK_TITLE=$(jq -r '.name' "$INFO_FILE_PATH")
           FOLDER_LINK=$(rclone link "${TARGET}" 2>/dev/null || echo "Không thể tạo link")
-          
-          echo "BOOK_TITLE<<EOF" >> $GITHUB_OUTPUT
-          echo "$BOOK_TITLE" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-          
-          echo "FOLDER_LINK<<EOF" >> $GITHUB_OUTPUT
-          echo "$FOLDER_LINK" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
+          echo "BOOK_TITLE<<EOF" >> $GITHUB_OUTPUT; echo "$BOOK_TITLE" >> $GITHUB_OUTPUT; echo "EOF" >> $GITHUB_OUTPUT
+          echo "FOLDER_LINK<<EOF" >> $GITHUB_OUTPUT; echo "$FOLDER_LINK" >> $GITHUB_OUTPUT; echo "EOF" >> $GITHUB_OUTPUT
         shell: bash
 
       - name: Send Notification (New/Updated/Supplemented)
