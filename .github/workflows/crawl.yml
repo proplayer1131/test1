@@ -33,6 +33,8 @@ jobs:
       BHLNK_PASSWORD: ${{ secrets.BHLNK_PASSWORD }}
       PYTHONPATH: ${{ github.workspace }}
       RCLONE_DEST: ${{ secrets.RCLONE_DEST || '1drive:/LSC_Books' }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
 
     steps:
       - name: Maximize build space
@@ -61,7 +63,7 @@ jobs:
       - name: Install Python dependencies
         run: |
           python -m pip install -U pip
-          pip install requests Pillow
+          pip install requests Pillow psutil
           if [ -f requirements.txt ]; then
             grep -v -E 'tkinter|pywin32|win32mica|upx|customtkinter|futures|tqdm' requirements.txt > requirements_linux.txt
             pip install -r requirements_linux.txt
@@ -79,47 +81,57 @@ jobs:
       - name: Run Intelligent Crawl Script
         run: python -u scripts/crawl_range.py | tee crawl.log
 
-      - name: Upload downloaded books and create summary
+      - name: Upload downloaded books
         run: |
           set -euo pipefail
-          SUMMARY_MD="SUMMARY_run_${{ github.run_id }}.md"
-          echo "# 📚 Crawl Summary (run ${{ github.run_id }})" > "$SUMMARY_MD"
-          echo "| ID | Title | Folder Link | Chapters |" >> "$SUMMARY_MD"
-          echo "|---:|-------|-------------|----------|" >> "$SUMMARY_MD"
+          shopt -s nullglob
+          
+          # Tìm tất cả các thư mục chứa sách đã được tải về (có chứa book_info.json)
+          book_folders=(*_*/*book_info.json)
 
-          find . -maxdepth 2 -type f -name 'book_info.json' | while read -r info_file; do
+          if [ ${#book_folders[@]} -eq 0 ]; then
+            echo "Không có sách nào được tải mới hoặc cập nhật. Bỏ qua upload."
+            exit 0
+          fi
+
+          echo "Bắt đầu tải lên các sách đã download..."
+          for info_file in "${book_folders[@]}"; do
             book_folder=$(dirname "$info_file")
-            if ! ls "${book_folder}"/*.pdf &> /dev/null; then
-                continue
-            fi
-
             folder_name=$(basename "$book_folder")
             
-            echo "Processing folder: ${folder_name}"
-            
-            TARGET="${RCLONE_DEST}/${folder_name}"
-            echo "Uploading ${folder_name} to ${TARGET}"
-            rclone copy "${book_folder}" "${TARGET}" --transfers=8 --checkers=16 --progress
-            
-            book_id=$(jq -r '.id' "$info_file")
-            book_title=$(jq -r '.name' "$info_file")
-            
-            folder_link=$(rclone link "${TARGET}" 2>/dev/null || echo "N/A")
-            
-            chapters_md=""
-            pdf_files=$(find "${book_folder}" -name "*.pdf" | sort)
-            if [ -n "$pdf_files" ]; then
-                chapters_md=$(echo "$pdf_files" | xargs -n 1 basename | sed 's/$/<br>/' | tr -d '\n')
+            # Chỉ upload nếu có file PDF, tránh upload thư mục rỗng
+            if ls "${book_folder}"/*.pdf &> /dev/null; then
+              TARGET="${RCLONE_DEST}/${folder_name}"
+              echo "Uploading ${folder_name} to ${TARGET}"
+              rclone copy "${book_folder}" "${TARGET}" --transfers=8 --checkers=16 --progress
             fi
-            
-            printf "| %s | %s | [%s](%s) | %s |\n" "$book_id" "$book_title" "$folder_name" "$folder_link" "$chapters_md" >> "$SUMMARY_MD"
           done
-          
-          if [ -s "$SUMMARY_MD" ]; then
-            SUM_DIR="${RCLONE_DEST}/_summaries"
-            rclone mkdir "$SUM_DIR" || true
-            rclone copyto "$SUMMARY_MD" "${SUM_DIR}/${SUMMARY_MD}" --progress
-            echo "Summary file uploaded to ${SUM_DIR}"
-          else
-            echo "No books were downloaded or updated. Skipping summary upload."
-          fi
+
+          echo "Hoàn tất upload."
+
+      - name: Send Success Notification
+        if: success()
+        uses: appleboy/telegram-action@v1.0.0
+        with:
+          to: ${{ env.TELEGRAM_CHAT_ID }}
+          token: ${{ env.TELEGRAM_BOT_TOKEN }}
+          format: markdown
+          message: |
+            ✅ *Crawl Success!*
+            Đã quét xong sách từ ID `${{ env.FROM_ID }}` đến `${{ env.TO_ID }}`.
+            Xem chi tiết trong file log đính kèm.
+          document: ./crawl.log
+
+      - name: Send Failure Notification
+        if: failure() || cancelled()
+        uses: appleboy/telegram-action@v1.0.0
+        with:
+          to: ${{ env.TELEGRAM_CHAT_ID }}
+          token: ${{ env.TELEGRAM_BOT_TOKEN }}
+          format: markdown
+          message: |
+            ❌ *Crawl Failed!*
+            *Range:* `${{ env.FROM_ID }}` - `${{ env.TO_ID }}`
+            *Status:* `${{ job.status }}`
+            Xem chi tiết trong file log đính kèm.
+          document: ./crawl.log
