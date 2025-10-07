@@ -7,18 +7,18 @@ on:
         description: "BOOK_ID to download"
         required: true
         default: "1"
-      DOWNLOAD_MODE:
-        description: "Chọn chế độ tải"
-        required: true
-        default: "per_chapter"
-        type: choice
-        options:
-          - per_chapter
-          - single
       THREADS:
         description: "Số luồng tải ảnh đồng thời (max threads)"
         required: true
         default: "512"
+      MERGE_TO_SINGLE_FILE:
+        description: "Gộp các chương thành 1 file PDF (kèm mục lục)?"
+        required: true
+        default: "no"
+        type: choice
+        options:
+          - "yes"
+          - "no"
 
 env:
   TZ: Asia/Ho_Chi_Minh
@@ -31,8 +31,8 @@ jobs:
     timeout-minutes: 720
     env:
       BOOK_ID: ${{ github.event.inputs.BOOK_ID }}
-      DOWNLOAD_MODE: ${{ github.event.inputs.DOWNLOAD_MODE }}
       THREADS: ${{ github.event.inputs.THREADS }}
+      MERGE_PDF: ${{ github.event.inputs.MERGE_TO_SINGLE_FILE }} # Truyền lựa chọn vào biến môi trường
       PYTHONPATH: ${{ github.workspace }}
       RCLONE_DEST: ${{ secrets.RCLONE_DEST || '1drive:/LSC_Books' }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
@@ -99,8 +99,8 @@ jobs:
       - name: Show Run Parameters
         run: |
           echo "Book ID: ${{ env.BOOK_ID }}"
-          echo "Download Mode: ${{ env.DOWNLOAD_MODE }}"
           echo "Threads: ${{ env.THREADS }}"
+          echo "Merge PDF: ${{ env.MERGE_PDF }}"
 
       - name: Run Intelligent Download Script
         id: download_script
@@ -117,17 +117,6 @@ jobs:
           fi
         shell: bash
 
-      - name: Upload Book
-        if: steps.status_reader.outputs.DOWNLOAD_STATUS != 'SCRIPT_ERROR' && steps.status_reader.outputs.DOWNLOAD_STATUS != 'NOT_FOUND' && steps.status_reader.outputs.DOWNLOAD_STATUS != 'EXISTS'
-        run: |
-          if [ ! -f "folder_name.txt" ]; then exit 0; fi
-          FOLDER_NAME=$(cat folder_name.txt)
-          if [ -d "${FOLDER_NAME}" ]; then
-              TARGET="${RCLONE_DEST}/${FOLDER_NAME}"
-              rclone copy "${FOLDER_NAME}" "${TARGET}" --transfers=8 --checkers=16 --progress
-          fi
-        shell: bash
-
       - name: Send Success or Exists Notification
         if: success() && (steps.status_reader.outputs.DOWNLOAD_STATUS == 'NEW' || steps.status_reader.outputs.DOWNLOAD_STATUS == 'UPDATED' || steps.status_reader.outputs.DOWNLOAD_STATUS == 'SUPPLEMENTED' || steps.status_reader.outputs.DOWNLOAD_STATUS == 'EXISTS')
         uses: appleboy/telegram-action@v1.0.0
@@ -135,7 +124,7 @@ jobs:
           to: ${{ env.TELEGRAM_CHAT_ID }}
           token: ${{ env.TELEGRAM_BOT_TOKEN }}
           format: markdown
-          disable_web_page_preview: true
+          disable_web_page_preview: false
           message_file: ./telegram_message.txt
 
       - name: Send Failure Notification
