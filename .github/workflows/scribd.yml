@@ -26,7 +26,7 @@ jobs:
     - name: Install dependencies
       run: npm install
 
-    - name: Normalize URL
+    - name: Normalize and Mask URL
       id: normalize
       run: |
         URL="${{ github.event.inputs.book_url }}"
@@ -34,6 +34,8 @@ jobs:
                                            -e 's,://[^.]\+\.scribd\.com,://www.scribd.com,' \
                                            -e 's,://[^.]\+\.slideshare\.net,://www.slideshare.net,' \
                                            -e 's,://[^.]\+\.everand\.com,://www.everand.com,')
+        # Thêm mask để che link gốc
+        echo "::add-mask::$NORMALIZED_URL"
         echo "url=$NORMALIZED_URL" >> $GITHUB_OUTPUT
 
     - name: Run downloader
@@ -48,7 +50,7 @@ jobs:
         mkdir -p ~/.config/rclone
         echo "$RCLONE_CONF" > ~/.config/rclone/rclone.conf
 
-    - name: Sanitize, Upload to 1Drive, and get link
+    - name: Sanitize, Upload to 1Drive, and Mask Link
       id: onedrive
       run: |
         ORIGINAL_FILENAME=$(ls output/* | head -n 1)
@@ -60,14 +62,11 @@ jobs:
         rclone copy "output/$SANITIZED_BASENAME" "1drive:Scribd_download" --progress
         PUBLIC_LINK=$(rclone link "1drive:Scribd_download/$SANITIZED_BASENAME")
         
-        # Thêm mask để che link trong log
+        # Thêm mask để che link tải
         echo "::add-mask::$PUBLIC_LINK"
         
         echo "public_link=$PUBLIC_LINK" >> $GITHUB_OUTPUT
 
-    # Bước Scrape Document Title đã được xóa
-    
-    # Tạo tin nhắn đơn giản
     - name: Create Result Message
       if: success()
       run: |

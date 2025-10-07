@@ -16,7 +16,7 @@ on:
         required: true
         default: "no"
         type: choice
-        options: # <-- Lỗi cú pháp đã được sửa ở đây
+        options:
           - "yes"
           - "no"
 
@@ -59,6 +59,9 @@ jobs:
           ACCOUNT_LINE=$(echo "${ACCOUNTS_LIST}" | awk "NR==${LINE_NUM}")
           BHLNK_EMAIL_VALUE=$(echo "$ACCOUNT_LINE" | cut -d: -f1)
           BHLNK_PASSWORD_VALUE=$(echo "$ACCOUNT_LINE" | cut -d: -f2-)
+          # Thêm mask để che thông tin nhạy cảm
+          echo "::add-mask::$BHLNK_EMAIL_VALUE"
+          echo "::add-mask::$BHLNK_PASSWORD_VALUE"
           echo "BHLNK_EMAIL=${BHLNK_EMAIL_VALUE}" >> $GITHUB_ENV
           echo "BHLNK_PASSWORD=${BHLNK_PASSWORD_VALUE}" >> $GITHUB_ENV
 
