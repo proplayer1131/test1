@@ -13,13 +13,13 @@ jobs:
 
     steps:
     - name: Checkout downloader repository
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
       with:
         repository: 'proplayer1131/scribd-downloader'
         token: ${{ secrets.ACTION_TOKEN }}
 
     - name: Set up Node.js
-      uses: actions/setup-node@v3
+      uses: actions/setup-node@v4
       with:
         node-version: '20.x'
 
@@ -51,16 +51,29 @@ jobs:
         mkdir -p ~/.config/rclone
         echo "$RCLONE_CONF" > ~/.config/rclone/rclone.conf
 
-    - name: Upload to 1Drive
+    - name: Upload to 1Drive and get link
       id: onedrive
       run: |
         BOOK_FILENAME="${{ steps.downloader.outputs.book_filename }}"
         rclone copy "output/$BOOK_FILENAME" "1drive:Scribd_download" --progress
-     
+        # Đảm bảo link được tạo ngay cả khi file đã tồn tại
+        PUBLIC_LINK=$(rclone link "1drive:Scribd_download/$BOOK_FILENAME")
+        echo "public_link=$PUBLIC_LINK" >> $GITHUB_OUTPUT
+
+    # ===== BƯỚC QUAN TRỌNG 1: TẠO TỆP TIN NHẮN =====
+    - name: Create Result Message
+      if: success()
+      run: |
+        echo "✅ **Tải tài liệu Scribd hoàn tất!**" > telegram_message.txt
+        echo "" >> telegram_message.txt
+        echo "📄 **Tệp:** `${{ steps.downloader.outputs.book_filename }}`" >> telegram_message.txt
+        echo "🔗 **Link:** [Tải về](${{ steps.onedrive.outputs.public_link }})" >> telegram_message.txt
+
+    # ===== BƯỚC QUAN TRỌNG 2: TẢI LÊN ARTIFACT =====
     - name: Upload Result Message
       if: success() && hashFiles('telegram_message.txt') != ''
       uses: actions/upload-artifact@v4
       with:
-          name: result-message-${{ github.run_id }}
-          path: telegram_message.txt
-          retention-days: 1
+        name: result-message-${{ github.run_id }}
+        path: telegram_message.txt
+        retention-days: 1
