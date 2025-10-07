@@ -26,7 +26,6 @@ jobs:
     - name: Install dependencies
       run: npm install
 
-    # ===== ĐÃ THÊM MASK Ở ĐÂY =====
     - name: Normalize and Mask URL
       id: normalize
       run: |
@@ -35,7 +34,6 @@ jobs:
                                            -e 's,://[^.]\+\.scribd\.com,://www.scribd.com,' \
                                            -e 's,://[^.]\+\.slideshare\.net,://www.slideshare.net,' \
                                            -e 's,://[^.]\+\.everand\.com,://www.everand.com,')
-        # Thêm mask để che link gốc trong log
         echo "::add-mask::$NORMALIZED_URL"
         echo "url=$NORMALIZED_URL" >> $GITHUB_OUTPUT
 
@@ -51,7 +49,6 @@ jobs:
         mkdir -p ~/.config/rclone
         echo "$RCLONE_CONF" > ~/.config/rclone/rclone.conf
 
-    # ===== ĐÃ THÊM MASK Ở ĐÂY =====
     - name: Sanitize, Upload to 1Drive, and Mask Link
       id: onedrive
       run: |
@@ -62,19 +59,18 @@ jobs:
         fi
         rclone copy "output/$SANITIZED_BASENAME" "1drive:Scribd_download" --progress
         PUBLIC_LINK=$(rclone link "1drive:Scribd_download/$SANITIZED_BASENAME")
-        
-        # Thêm mask để che link tải trong log
         echo "::add-mask::$PUBLIC_LINK"
-        
         echo "public_link=$PUBLIC_LINK" >> $GITHUB_OUTPUT
 
     - name: Scrape Document Title
       id: scrape_title
       run: |
+        # Lệnh mới: cô lập khối h1, sau đó chỉ trích xuất nội dung từ thẻ p bên trong.
         TITLE=$(curl -sL "${{ steps.normalize.outputs.url }}" | \
-                tr '\n' ' ' | \
-                sed -n 's/.*<h1[^>]*data-e2e="doc_page_title"[^>]*>\(.*\)<\/h1>.*/\1/p' | \
-                sed -e 's/<[^>]*>//g' -e 's/^[ \t]*//;s/[ \t]*$//' -e 's/  */ /g')
+                sed -n '/<h1.*data-e2e="doc_page_title"/, /<\/h1>/p' | \
+                sed -n 's/.*<p[^>]*>\(.*\)<\/p>.*/\1/p' | \
+                sed 's/<[^>]*>//g' | \
+                xargs)
         echo "DOCUMENT_TITLE=$TITLE" >> $GITHUB_OUTPUT
 
     - name: Create Result Message
