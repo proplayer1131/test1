@@ -119,7 +119,7 @@ jobs:
         if: success()
         run: |
           # Dùng awk để trích xuất nội dung giữa các thẻ đánh dấu và lưu vào biến
-          MESSAGES=$(awk '/TELEGRAM_MESSAGE_START/{flag=1; msg=""; next} /TELEGRAM_MESSAGE_END/{flag=0; print msg; print "---"; msg=""} flag{msg=(msg=="" ? "" : msg"\\n") $0}' crawl.log)
+          MESSAGES=$(awk '/TELEGRAM_MESSAGE_START/{flag=1; msg=""; next} /TELEGRAM_MESSAGE_END/{flag=0; print msg; print "---"; msg=""} flag{msg=(msg=="" ? "" : msg"\n") $0}' crawl.log)
           
           # Đọc từng tin nhắn (phân tách bằng "---") và gửi đi
           echo "$MESSAGES" | while IFS= read -r line; do
