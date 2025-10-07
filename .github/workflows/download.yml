@@ -18,7 +18,7 @@ on:
       THREADS:
         description: "Số luồng tải ảnh đồng thời (max threads)"
         required: true
-        default: "8"
+        default: "16"
 
 env:
   TZ: Asia/Ho_Chi_Minh
@@ -72,56 +72,143 @@ jobs:
           rclone version
 
       - name: Run Intelligent Download Script
+        id: download_script
         run: python -u scripts/download_one.py | tee download.log
 
-      - name: Upload book and create summary
+      - name: Read Download Status
+        id: status_reader
+        run: |
+          if [ -f "download_status.txt" ]; then
+            STATUS=$(cat download_status.txt)
+            echo "Download status: $STATUS"
+            echo "DOWNLOAD_STATUS=$STATUS" >> $GITHUB_OUTPUT
+          else
+            echo "download_status.txt not found. Assuming failure."
+            echo "DOWNLOAD_STATUS=UNKNOWN_FAILURE" >> $GITHUB_OUTPUT
+          fi
+        shell: bash
+
+      - name: Upload Book and Prepare Info
+        id: upload_and_info
+        # Chỉ chạy bước này nếu có sách mới, cập nhật, hoặc bổ sung
+        if: |
+          steps.status_reader.outputs.DOWNLOAD_STATUS == 'NEW' ||
+          steps.status_reader.outputs.DOWNLOAD_STATUS == 'UPDATED' ||
+          steps.status_reader.outputs.DOWNLOAD_STATUS == 'SUPPLEMENTED'
         run: |
           set -euo pipefail
           if [ ! -f "folder_name.txt" ]; then
-            echo "Không có sách nào được tải về (có thể do không có cập nhật). Bỏ qua."
-            exit 0
+            echo "folder_name.txt not found, cannot upload."
+            exit 1
           fi
-
+          
           FOLDER_NAME=$(cat folder_name.txt)
-          TARGET="${RCLONE_DEST}/${FOLDER_NAME}"
-          SUMMARY_MD="SUMMARY_run_${{ github.run_id }}_${BOOK_ID}.md"
+          CLEAN_FOLDER_NAME=$(echo "$FOLDER_NAME" | sed 's/[:*?"<>|]/_/g')
+          TARGET="${RCLONE_DEST}/${CLEAN_FOLDER_NAME}"
           
-          echo "Uploading to target: ${TARGET}"
-          
-          if [ -d "${FOLDER_NAME}" ]; then
-            rclone copy "${FOLDER_NAME}" "${TARGET}" --transfers=8 --checkers=16 --progress
-          elif ls *.pdf 1> /dev/null 2>&1; then
-            rclone copy "${FOLDER_NAME}" "${TARGET}" --transfers=8 --checkers=16 --progress
-            find . -maxdepth 1 -name "*.pdf" -print0 | while IFS= read -r -d $'\0' file; do
-              rclone copyto "$file" "${TARGET}/$(basename "$file")" --transfers=8 --checkers=16 --progress
-            done
-          fi
+          echo "Uploading '${FOLDER_NAME}' to '${TARGET}'..."
+          rclone copy "${FOLDER_NAME}" "${TARGET}" --transfers=8 --checkers=16 --progress
           echo "Tải lên hoàn tất."
-
-          echo "# 📚 Download Summary (run ${{ github.run_id }})" > "$SUMMARY_MD"
-          echo "| ID | Title | Folder Link | Chapters |" >> "$SUMMARY_MD"
-          echo "|---:|-------|-------------|----------|" >> "$SUMMARY_MD"
           
           INFO_FILE_PATH="${FOLDER_NAME}/book_info.json"
-          
-          book_id=$(jq -r '.id' "$INFO_FILE_PATH")
-          book_title=$(jq -r '.name' "$INFO_FILE_PATH")
-          folder_link=$(rclone link "${TARGET}" 2>/dev/null || echo "N/A")
-          
-          chapters_md=""
-          pdf_files=$(find "${FOLDER_NAME}" -name "*.pdf" | sort)
-          if [ -n "$pdf_files" ]; then
-              chapters_md=$(echo "$pdf_files" | xargs -n 1 basename | sed 's/$/<br>/' | tr -d '\n')
+          if [ ! -f "$INFO_FILE_PATH" ]; then
+             BOOK_TITLE="Không tìm thấy tiêu đề"
+             FOLDER_LINK="Không thể tạo link"
           else
-              pdf_files=$(find . -maxdepth 1 -name "*.pdf" | sort)
-              if [ -n "$pdf_files" ]; then
-                  chapters_md=$(echo "$pdf_files" | xargs -n 1 basename | sed 's/$/<br>/' | tr -d '\n')
-              fi
+             BOOK_TITLE=$(jq -r '.name' "$INFO_FILE_PATH")
+             FOLDER_LINK=$(rclone link "${TARGET}" 2>/dev/null || echo "Không thể tạo link")
           fi
-
-          printf "| %s | %s | [%s](%s) | %s |\n" "$book_id" "$book_title" "$FOLDER_NAME" "$folder_link" "$chapters_md" >> "$SUMMARY_MD"
           
-          SUM_DIR="${RCLONE_DEST}/_summaries"
-          rclone mkdir "$SUM_DIR" || true
-          rclone copyto "$SUMMARY_MD" "${SUM_DIR}/${SUMMARY_MD}" --progress
-          echo "Summary file uploaded to ${SUM_DIR}"
+          echo "BOOK_TITLE<<EOF" >> $GITHUB_OUTPUT
+          echo "$BOOK_TITLE" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          
+          echo "FOLDER_LINK<<EOF" >> $GITHUB_OUTPUT
+          echo "$FOLDER_LINK" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+        shell: bash
+
+      # --- Notification Steps ---
+
+      - name: Send Notification (New Book)
+        if: success() && steps.status_reader.outputs.DOWNLOAD_STATUS == 'NEW'
+        uses: appleboy/telegram-action@v1.0.0
+        with:
+          to: ${{ secrets.TELEGRAM_CHAT_ID }}
+          token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          format: markdown
+          disable_web_page_preview: true
+          message: |
+            ✅ Tải Sách Hoàn Tất (Sách mới)
+            📖 Sách: ${{ steps.upload_and_info.outputs.BOOK_TITLE }}
+            🆔 ID: ${{ env.BOOK_ID }}
+            🔗 Link Thư Mục: [Nhấn vào đây](${{ steps.upload_and_info.outputs.FOLDER_LINK }})
+
+      - name: Send Notification (Updated)
+        if: success() && steps.status_reader.outputs.DOWNLOAD_STATUS == 'UPDATED'
+        uses: appleboy/telegram-action@v1.0.0
+        with:
+          to: ${{ secrets.TELEGRAM_CHAT_ID }}
+          token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          format: markdown
+          disable_web_page_preview: true
+          message: |
+            🔄 Tải Sách Hoàn Tất (Đã cập nhật)
+            📖 Sách: ${{ steps.upload_and_info.outputs.BOOK_TITLE }}
+            🆔 ID: ${{ env.BOOK_ID }}
+            🔗 Link Thư Mục: [Nhấn vào đây](${{ steps.upload_and_info.outputs.FOLDER_LINK }})
+
+      - name: Send Notification (Supplemented)
+        if: success() && steps.status_reader.outputs.DOWNLOAD_STATUS == 'SUPPLEMENTED'
+        uses: appleboy/telegram-action@v1.0.0
+        with:
+          to: ${{ secrets.TELEGRAM_CHAT_ID }}
+          token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          format: markdown
+          disable_web_page_preview: true
+          message: |
+            ➕ Tải Sách Hoàn Tất (Bổ sung file thiếu)
+            📖 Sách: ${{ steps.upload_and_info.outputs.BOOK_TITLE }}
+            🆔 ID: ${{ env.BOOK_ID }}
+            🔗 Link Thư Mục: [Nhấn vào đây](${{ steps.upload_and_info.outputs.FOLDER_LINK }})
+
+      - name: Send Notification (Already Exists)
+        if: success() && steps.status_reader.outputs.DOWNLOAD_STATUS == 'EXISTS'
+        uses: appleboy/telegram-action@v1.0.0
+        with:
+          to: ${{ secrets.TELEGRAM_CHAT_ID }}
+          token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          format: markdown
+          message: |
+            ℹ️ Kiểm Tra Hoàn Tất (Sách đã có sẵn)
+            🆔 ID: ${{ env.BOOK_ID }} - Không có cập nhật mới.
+
+      - name: Send Notification (Not Found)
+        if: success() && steps.status_reader.outputs.DOWNLOAD_STATUS == 'NOT_FOUND'
+        uses: appleboy/telegram-action@v1.0.0
+        with:
+          to: ${{ secrets.TELEGRAM_CHAT_ID }}
+          token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          format: markdown
+          message: |
+            ⚠️ Kiểm Tra Thất Bại (Không tồn tại)
+            🆔 ID: ${{ env.BOOK_ID }} - Sách không tồn tại hoặc link bị hỏng.
+
+      - name: Send Failure Notification
+        if: failure() || cancelled()
+        uses: appleboy/telegram-action@v1.0.0
+        with:
+          to: ${{ secrets.TELEGRAM_CHAT_ID }}
+          token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          format: markdown
+          message: |
+            ❌ *Download Failed!*
+
+            *Book ID:* `${{ env.BOOK_ID }}`
+            *Status:* `${{ job.status }}`
+
+            Workflow run:
+            [${{ github.workflow }}#${{ github.run_id }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+
+            _See attached log for details._
+          document: ./download.log
