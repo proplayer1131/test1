@@ -55,12 +55,18 @@ jobs:
         with:
           python-version: "3.11"
       
-      - name: Select Random Account and Mask Credentials
+      - name: Select Account Sequentially and Mask Credentials
         id: select_account
         env:
           ACCOUNTS_SECRET: ${{ secrets.BHLNK_ACCOUNTS }}
+          RUN_NUMBER: ${{ github.run_number }}
         run: |
-          ACCOUNT_LINE=$(echo "${ACCOUNTS_SECRET}" | sed '/^\s*$/d' | shuf -n 1)
+          ACCOUNTS_LIST=$(echo "${ACCOUNTS_SECRET}" | sed '/^\s*$/d')
+          TOTAL_ACCOUNTS=$(echo "${ACCOUNTS_LIST}" | wc -l)
+          
+          ACCOUNT_INDEX=$(( (RUN_NUMBER - 1) % TOTAL_ACCOUNTS ))
+          ACCOUNT_LINE=$(echo "${ACCOUNTS_LIST}" | awk "NR==$((ACCOUNT_INDEX + 1))")
+          
           BHLNK_EMAIL_VALUE=$(echo "$ACCOUNT_LINE" | cut -d: -f1)
           BHLNK_PASSWORD_VALUE=$(echo "$ACCOUNT_LINE" | cut -d: -f2-)
           
@@ -70,7 +76,8 @@ jobs:
           echo "BHLNK_EMAIL=${BHLNK_EMAIL_VALUE}" >> $GITHUB_ENV
           echo "BHLNK_PASSWORD=${BHLNK_PASSWORD_VALUE}" >> $GITHUB_ENV
           
-          echo "Using random account: ${BHLNK_EMAIL_VALUE}"
+          echo "Run Number: ${RUN_NUMBER}"
+          echo "Using account from line $((ACCOUNT_INDEX + 1)): ${BHLNK_EMAIL_VALUE}"
 
       - name: Install system dependencies
         run: sudo apt-get update && sudo apt-get install -y python3-tk jq
