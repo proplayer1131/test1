@@ -57,7 +57,7 @@ jobs:
       run: |
         BOOK_FILENAME="${{ steps.downloader.outputs.book_filename }}"
         rclone copy "output/$BOOK_FILENAME" "1drive:Scribd_download"
-        PUBLIC_LINK=$(rclone link "1drive:Scribd download/$BOOK_FILENAME")
+        PUBLIC_LINK=$(rclone link "1drive:Scribd_download/$BOOK_FILENAME")
         echo "public_link=$PUBLIC_LINK" >> $GITHUB_OUTPUT
 
     - name: Send notification to Telegram
