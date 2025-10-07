@@ -18,7 +18,7 @@ on:
       THREADS:
         description: "Số luồng tải ảnh đồng thời (max threads)"
         required: true
-        default: "16"
+        default: "64"
 
 env:
   TZ: Asia/Ho_Chi_Minh
