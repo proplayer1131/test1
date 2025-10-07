@@ -18,7 +18,7 @@ on:
       THREADS:
         description: "Số luồng tải ảnh đồng thời (max threads)"
         required: true
-        default: "16"
+        default: "8"
 
 env:
   TZ: Asia/Ho_Chi_Minh
@@ -75,32 +75,17 @@ jobs:
         id: download_script
         run: python -u scripts/download_one.py | tee download.log
 
-      - name: Read Download Status
-        id: status_reader
-        run: |
-          if [ -f "download_status.txt" ]; then
-            STATUS=$(cat download_status.txt)
-            echo "Download status: $STATUS"
-            echo "DOWNLOAD_STATUS=$STATUS" >> $GITHUB_OUTPUT
-          else
-            echo "download_status.txt not found. Assuming failure."
-            echo "DOWNLOAD_STATUS=UNKNOWN_FAILURE" >> $GITHUB_OUTPUT
-          fi
-        shell: bash
-
       - name: Upload Book and Prepare Info
         id: upload_and_info
-        # Chỉ chạy bước này nếu có sách mới, cập nhật, hoặc bổ sung
-        if: |
-          steps.status_reader.outputs.DOWNLOAD_STATUS == 'NEW' ||
-          steps.status_reader.outputs.DOWNLOAD_STATUS == 'UPDATED' ||
-          steps.status_reader.outputs.DOWNLOAD_STATUS == 'SUPPLEMENTED'
         run: |
           set -euo pipefail
           if [ ! -f "folder_name.txt" ]; then
-            echo "folder_name.txt not found, cannot upload."
-            exit 1
+            echo "Không có sách nào được tải về. Bỏ qua."
+            echo "DOWNLOADED=false" >> $GITHUB_OUTPUT
+            exit 0
           fi
+          
+          echo "DOWNLOADED=true" >> $GITHUB_OUTPUT
           
           FOLDER_NAME=$(cat folder_name.txt)
           CLEAN_FOLDER_NAME=$(echo "$FOLDER_NAME" | sed 's/[:*?"<>|]/_/g')
@@ -112,6 +97,7 @@ jobs:
           
           INFO_FILE_PATH="${FOLDER_NAME}/book_info.json"
           if [ ! -f "$INFO_FILE_PATH" ]; then
+             echo "book_info.json not found! Using fallback values."
              BOOK_TITLE="Không tìm thấy tiêu đề"
              FOLDER_LINK="Không thể tạo link"
           else
@@ -128,10 +114,8 @@ jobs:
           echo "EOF" >> $GITHUB_OUTPUT
         shell: bash
 
-      # --- Notification Steps ---
-
-      - name: Send Notification (New Book)
-        if: success() && steps.status_reader.outputs.DOWNLOAD_STATUS == 'NEW'
+      - name: Send Download Success Notification
+        if: success() && steps.upload_and_info.outputs.DOWNLOADED == 'true'
         uses: appleboy/telegram-action@v1.0.0
         with:
           to: ${{ secrets.TELEGRAM_CHAT_ID }}
@@ -144,55 +128,16 @@ jobs:
             🆔 ID: ${{ env.BOOK_ID }}
             🔗 Link Thư Mục: [Nhấn vào đây](${{ steps.upload_and_info.outputs.FOLDER_LINK }})
 
-      - name: Send Notification (Updated)
-        if: success() && steps.status_reader.outputs.DOWNLOAD_STATUS == 'UPDATED'
-        uses: appleboy/telegram-action@v1.0.0
-        with:
-          to: ${{ secrets.TELEGRAM_CHAT_ID }}
-          token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          format: markdown
-          disable_web_page_preview: true
-          message: |
-            🔄 Tải Sách Hoàn Tất (Đã cập nhật)
-            📖 Sách: ${{ steps.upload_and_info.outputs.BOOK_TITLE }}
-            🆔 ID: ${{ env.BOOK_ID }}
-            🔗 Link Thư Mục: [Nhấn vào đây](${{ steps.upload_and_info.outputs.FOLDER_LINK }})
-
-      - name: Send Notification (Supplemented)
-        if: success() && steps.status_reader.outputs.DOWNLOAD_STATUS == 'SUPPLEMENTED'
-        uses: appleboy/telegram-action@v1.0.0
-        with:
-          to: ${{ secrets.TELEGRAM_CHAT_ID }}
-          token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          format: markdown
-          disable_web_page_preview: true
-          message: |
-            ➕ Tải Sách Hoàn Tất (Bổ sung file thiếu)
-            📖 Sách: ${{ steps.upload_and_info.outputs.BOOK_TITLE }}
-            🆔 ID: ${{ env.BOOK_ID }}
-            🔗 Link Thư Mục: [Nhấn vào đây](${{ steps.upload_and_info.outputs.FOLDER_LINK }})
-
-      - name: Send Notification (Already Exists)
-        if: success() && steps.status_reader.outputs.DOWNLOAD_STATUS == 'EXISTS'
+      - name: Send No Update Notification
+        if: success() && steps.upload_and_info.outputs.DOWNLOADED == 'false'
         uses: appleboy/telegram-action@v1.0.0
         with:
           to: ${{ secrets.TELEGRAM_CHAT_ID }}
           token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           format: markdown
           message: |
-            ℹ️ Kiểm Tra Hoàn Tất (Sách đã có sẵn)
-            🆔 ID: ${{ env.BOOK_ID }} - Không có cập nhật mới.
-
-      - name: Send Notification (Not Found)
-        if: success() && steps.status_reader.outputs.DOWNLOAD_STATUS == 'NOT_FOUND'
-        uses: appleboy/telegram-action@v1.0.0
-        with:
-          to: ${{ secrets.TELEGRAM_CHAT_ID }}
-          token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          format: markdown
-          message: |
-            ⚠️ Kiểm Tra Thất Bại (Không tồn tại)
-            🆔 ID: ${{ env.BOOK_ID }} - Sách không tồn tại hoặc link bị hỏng.
+            ✅ Kiểm tra hoàn tất.
+            Không có sách hoặc chương mới nào cho Book ID: `${{ env.BOOK_ID }}`.
 
       - name: Send Failure Notification
         if: failure() || cancelled()
