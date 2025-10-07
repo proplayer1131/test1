@@ -82,3 +82,11 @@ jobs:
       - name: Run Intelligent Download Script
         id: download_script
         run: python -u scripts/download_one.py
+     
+      - name: Upload Result Message
+        if: success() && hashFiles('telegram_message.txt') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: result-message-${{ github.run_id }}
+          path: telegram_message.txt
+          retention-days: 1

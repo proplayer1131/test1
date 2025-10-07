@@ -56,3 +56,11 @@ jobs:
       run: |
         BOOK_FILENAME="${{ steps.downloader.outputs.book_filename }}"
         rclone copy "output/$BOOK_FILENAME" "1drive:Scribd_download" --progress
+     
+    - name: Upload Result Message
+      if: success() && hashFiles('telegram_message.txt') != ''
+      uses: actions/upload-artifact@v4
+      with:
+          name: result-message-${{ github.run_id }}
+          path: telegram_message.txt
+          retention-days: 1

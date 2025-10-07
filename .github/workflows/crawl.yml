@@ -86,3 +86,11 @@ jobs:
 
       - name: Run Intelligent Crawl Script
         run: python -u scripts/crawl_range.py
+     
+      - name: Upload Result Message
+        if: success() && hashFiles('telegram_message.txt') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: result-message-${{ github.run_id }}
+          path: telegram_message.txt
+          retention-days: 1
