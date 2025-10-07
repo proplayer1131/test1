@@ -40,8 +40,7 @@ jobs:
       id: downloader
       run: |
         npm start "${{ steps.normalize.outputs.url }}"
-        BOOK_FILENAME=$(ls output/* | head -n 1)
-        echo "book_filename=$(basename "$BOOK_FILENAME")" >> $GITHUB_OUTPUT
+        # Không cần lấy tên file ở đây nữa
 
     - name: Install and configure rclone
       env:
@@ -54,22 +53,25 @@ jobs:
     - name: Upload to 1Drive and get link
       id: onedrive
       run: |
-        BOOK_FILENAME="${{ steps.downloader.outputs.book_filename }}"
-        rclone copy "output/$BOOK_FILENAME" "1drive:Scribd_download" --progress
-        # Đảm bảo link được tạo ngay cả khi file đã tồn tại
-        PUBLIC_LINK=$(rclone link "1drive:Scribd_download/$BOOK_FILENAME")
+        BOOK_FILENAME=$(ls output/* | head -n 1) # Lấy tên file để upload
+        rclone copy "$BOOK_FILENAME" "1drive:Scribd_download" --progress
+        PUBLIC_LINK=$(rclone link "1drive:Scribd_download/$(basename "$BOOK_FILENAME")")
         echo "public_link=$PUBLIC_LINK" >> $GITHUB_OUTPUT
 
-    # ===== BƯỚC QUAN TRỌNG 1: TẠO TỆP TIN NHẮN =====
+    - name: Scrape Document Title
+      id: scrape_title
+      run: |
+        # Tải HTML, tìm dòng chứa tiêu đề, xóa tag HTML, và lưu vào output
+        TITLE=$(curl -sL "${{ steps.normalize.outputs.url }}" | grep -o '<h1.*>.*</h1>' | sed -e 's/<[^>]*>//g' | head -n 1)
+        echo "DOCUMENT_TITLE=$TITLE" >> $GITHUB_OUTPUT
+
     - name: Create Result Message
       if: success()
       run: |
-        echo "✅ **Tải tài liệu Scribd hoàn tất!**" > telegram_message.txt
-        echo "" >> telegram_message.txt
-        echo "📄 **Tệp:** `${{ steps.downloader.outputs.book_filename }}`" >> telegram_message.txt
-        echo "🔗 **Link:** [Tải về](${{ steps.onedrive.outputs.public_link }})" >> telegram_message.txt
+        echo "✅ **Tải Sách Hoàn Tất**" > telegram_message.txt
+        echo "📖 **Sách:** ${{ steps.scrape_title.outputs.DOCUMENT_TITLE }}" >> telegram_message.txt
+        echo "🔗 **Link:** [Nhấn vào đây](${{ steps.onedrive.outputs.public_link }})" >> telegram_message.txt
 
-    # ===== BƯỚC QUAN TRỌNG 2: TẢI LÊN ARTIFACT =====
     - name: Upload Result Message
       if: success() && hashFiles('telegram_message.txt') != ''
       uses: actions/upload-artifact@v4
