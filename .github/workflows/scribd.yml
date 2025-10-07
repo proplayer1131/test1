@@ -12,11 +12,11 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout repository
+    - name: Checkout downloader repository
       uses: actions/checkout@v3
       with:
-          repository: 'proplayer1131/scribd-downloader'
-          token: ${{ secrets.ACTION_TOKEN }}
+        repository: 'proplayer1131/scribd-downloader'
+        token: ${{ secrets.ACTION_TOKEN }}
 
     - name: Set up Node.js
       uses: actions/setup-node@v3
@@ -26,12 +26,23 @@ jobs:
     - name: Install dependencies
       run: npm install
 
+    - name: Normalize URL
+      id: normalize
+      run: |
+        URL="${{ github.event.inputs.book_url }}"
+        NORMALIZED_URL=$(echo "$URL" | sed -e 's/^http:/https:/' \
+                                           -e 's,://[^.]\+\.scribd\.com,://www.scribd.com,' \
+                                           -e 's,://[^.]\+\.slideshare\.net,://www.slideshare.net,' \
+                                           -e 's,://[^.]\+\.everand\.com,://www.everand.com,')
+        echo "Normalized URL: $NORMALIZED_URL"
+        echo "url=$NORMALIZED_URL" >> $GITHUB_OUTPUT
+
     - name: Run downloader
       id: downloader
       run: |
-        npm start "${{ github.event.inputs.book_url }}"
-        echo "::set-output name=book_filename::$(ls output/*.pdf | xargs -n 1 basename)"
-
+        npm start "${{ steps.normalize.outputs.url }}"
+        BOOK_FILENAME=$(ls output/* | head -n 1)
+        echo "book_filename=$(basename "$BOOK_FILENAME")" >> $GITHUB_OUTPUT
 
     - name: Install and configure rclone
       env:
@@ -41,13 +52,13 @@ jobs:
         mkdir -p ~/.config/rclone
         echo "$RCLONE_CONF" > ~/.config/rclone/rclone.conf
 
-    - name: Upload to OneDrive and get link
+    - name: Upload to 1Drive and get link
       id: onedrive
       run: |
         BOOK_FILENAME="${{ steps.downloader.outputs.book_filename }}"
-        rclone copy "output/$BOOK_FILENAME" "onedrive:Scribd download"
-        PUBLIC_LINK=$(rclone link "onedrive:Scribd download/$BOOK_FILENAME")
-        echo "::set-output name=public_link::$PUBLIC_LINK"
+        rclone copy "output/$BOOK_FILENAME" "1drive:Scribd_download"
+        PUBLIC_LINK=$(rclone link "1drive:Scribd download/$BOOK_FILENAME")
+        echo "public_link=$PUBLIC_LINK" >> $GITHUB_OUTPUT
 
     - name: Send notification to Telegram
       uses: appleboy/telegram-action@master
