@@ -56,24 +56,22 @@ jobs:
         if [ "$(basename "$ORIGINAL_FILENAME")" != "$SANITIZED_BASENAME" ]; then
           mv "$ORIGINAL_FILENAME" "output/$SANITIZED_BASENAME"
         fi
+        
         rclone copy "output/$SANITIZED_BASENAME" "1drive:Scribd_download" --progress
         PUBLIC_LINK=$(rclone link "1drive:Scribd_download/$SANITIZED_BASENAME")
+        
+        # Thêm mask để che link trong log
+        echo "::add-mask::$PUBLIC_LINK"
+        
         echo "public_link=$PUBLIC_LINK" >> $GITHUB_OUTPUT
 
-    - name: Scrape Document Title
-      id: scrape_title
-      run: |
-        TITLE=$(curl -sL "${{ steps.normalize.outputs.url }}" | \
-                tr '\n' ' ' | \
-                sed -n 's/.*<h1[^>]*data-e2e="doc_page_title"[^>]*>\(.*\)<\/h1>.*/\1/p' | \
-                sed -e 's/<[^>]*>//g' -e 's/^[ \t]*//;s/[ \t]*$//' -e 's/  */ /g')
-        echo "DOCUMENT_TITLE=$TITLE" >> $GITHUB_OUTPUT
-
+    # Bước Scrape Document Title đã được xóa
+    
+    # Tạo tin nhắn đơn giản
     - name: Create Result Message
       if: success()
       run: |
         echo "✅ **Tải Sách Hoàn Tất**" > telegram_message.txt
-        echo "📖 **Sách:** ${{ steps.scrape_title.outputs.DOCUMENT_TITLE }}" >> telegram_message.txt
         echo "🔗 **Link:** [Nhấn vào đây](${{ steps.onedrive.outputs.public_link }})" >> telegram_message.txt
 
     - name: Upload Result Message
