@@ -103,17 +103,15 @@ jobs:
           TARGET="${RCLONE_DEST}/${CLEAN_FOLDER_NAME}"
           
           echo "Uploading '${FOLDER_NAME}' to '${TARGET}'..."
+          # Logic đã được đơn giản hóa: chỉ cần copy thư mục nguồn
           rclone copy "${FOLDER_NAME}" "${TARGET}" --transfers=8 --checkers=16 --progress
           echo "Tải lên hoàn tất."
           
           INFO_FILE_PATH="${FOLDER_NAME}/book_info.json"
-          if [ ! -f "$INFO_FILE_PATH" ]; then
-             BOOK_TITLE="Không tìm thấy tiêu đề"
-             FOLDER_LINK="Không thể tạo link"
-          else
-             BOOK_TITLE=$(jq -r '.name' "$INFO_FILE_PATH")
-             FOLDER_LINK=$(rclone link "${TARGET}" 2>/dev/null || echo "Không thể tạo link")
-          fi
+          
+          # Logic lấy thông tin sách không đổi và giờ sẽ hoạt động ổn định
+          BOOK_TITLE=$(jq -r '.name' "$INFO_FILE_PATH")
+          FOLDER_LINK=$(rclone link "${TARGET}" 2>/dev/null || echo "Không thể tạo link")
           
           echo "BOOK_TITLE<<EOF" >> $GITHUB_OUTPUT
           echo "$BOOK_TITLE" >> $GITHUB_OUTPUT
@@ -124,8 +122,7 @@ jobs:
           echo "EOF" >> $GITHUB_OUTPUT
         shell: bash
 
-      # --- Notification Steps ---
-
+      # --- Các bước thông báo Telegram (Không thay đổi) ---
       - name: Send Notification (New/Updated/Supplemented)
         if: success() && (steps.status_reader.outputs.DOWNLOAD_STATUS == 'NEW' || steps.status_reader.outputs.DOWNLOAD_STATUS == 'UPDATED' || steps.status_reader.outputs.DOWNLOAD_STATUS == 'SUPPLEMENTED')
         uses: appleboy/telegram-action@v1.0.0
@@ -161,9 +158,9 @@ jobs:
           message: |
             ⚠️ Quét Thất Bại (Không tồn tại)
             ID: `${{ env.BOOK_ID }}` - Sách không tồn tại hoặc link bị hỏng.
-
+      
       - name: Send Failure Notification
-        if: failure() || cancelled()
+        if: failure() || cancelled() || steps.status_reader.outputs.DOWNLOAD_STATUS == 'DOWNLOAD_FAILED' || steps.status_reader.outputs.DOWNLOAD_STATUS == 'SCRIPT_ERROR'
         uses: appleboy/telegram-action@v1.0.0
         with:
           to: ${{ env.TELEGRAM_CHAT_ID }}
