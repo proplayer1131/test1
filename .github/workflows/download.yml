@@ -1,5 +1,4 @@
 name: "Intelligent Download Book"
-
 on:
   workflow_dispatch:
     inputs:
@@ -19,10 +18,8 @@ on:
         options:
           - "yes"
           - "no"
-
 env:
   TZ: Asia/Ho_Chi_Minh
-
 jobs:
   download:
     runs-on: ubuntu-22.04
@@ -33,19 +30,16 @@ jobs:
       MERGE_PDF: ${{ github.event.inputs.MERGE_TO_SINGLE_FILE }}
       PYTHONPATH: ${{ github.workspace }}
       RCLONE_DEST: ${{ secrets.RCLONE_DEST || '1drive:/LSC_Books' }}
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           repository: 'proplayer1131/sachyhocpdf_downloader-main'
           token: ${{ secrets.ACTION_TOKEN }}
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      
       - name: Select Account Sequentially
         id: select_account
         env:
@@ -64,7 +58,6 @@ jobs:
           echo "::add-mask::$BHLNK_PASSWORD_VALUE"
           echo "BHLNK_EMAIL=${BHLNK_EMAIL_VALUE}" >> $GITHUB_ENV
           echo "BHLNK_PASSWORD=${BHLNK_PASSWORD_VALUE}" >> $GITHUB_ENV
-
       - name: Install dependencies
         run: |
           sudo apt-get update && sudo apt-get install -y python3-tk jq
@@ -74,7 +67,6 @@ jobs:
             grep -v -E 'tkinter|pywin32|win32mica|upx|customtkinter|futures|tqdm' requirements.txt > requirements_linux.txt
             pip install -r requirements_linux.txt
           fi
-
       - name: Install and configure rclone
         env:
           RCLONE_CONF_CONTENTS: ${{ secrets.RCLONE_CONF }}
@@ -82,11 +74,9 @@ jobs:
           curl -fsSL https://rclone.org/install.sh | sudo bash
           mkdir -p ~/.config/rclone
           printf "%s" "$RCLONE_CONF_CONTENTS" > ~/.config/rclone/rclone.conf
-          
       - name: Run Intelligent Download Script
         id: download_script
         run: python -u scripts/download_one.py
-
       - name: Sanitize Folder Name
         id: sanitize
         if: hashFiles('folder_name.txt') != ''
@@ -97,7 +87,6 @@ jobs:
             mv -- "$ORIGINAL_NAME" "$SANITIZED_NAME"
           fi
           echo "sanitized_name=$SANITIZED_NAME" >> $GITHUB_OUTPUT
-
       - name: Upload Book
         if: steps.sanitize.outputs.sanitized_name != ''
         run: |
@@ -105,14 +94,6 @@ jobs:
           TARGET="${RCLONE_DEST}/${FOLDER_NAME}"
           rclone copy "${FOLDER_NAME}" "${TARGET}" --transfers=8 --checkers=16 --progress
         shell: bash
-
-      - name: Add Original Book Link
-        if: success() && hashFiles('telegram_message.txt') != ''
-        run: |
-          BOOK_URL="https://sachyhocpdf.com.vn/books/${{ env.BOOK_ID }}"
-          echo "" >> telegram_message.txt
-          echo "ℹ️ **Sách gốc:** [Click vào đây]($BOOK_URL)" >> telegram_message.txt
-
       - name: Upload Result Message
         if: success() && hashFiles('telegram_message.txt') != ''
         uses: actions/upload-artifact@v4
