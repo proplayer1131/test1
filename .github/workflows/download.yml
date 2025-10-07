@@ -18,7 +18,7 @@ on:
       THREADS:
         description: "Số luồng tải ảnh đồng thời (max threads)"
         required: true
-        default: "256"
+        default: "512"
 
 env:
   TZ: Asia/Ho_Chi_Minh
@@ -50,7 +50,7 @@ jobs:
         with:
           python-version: "3.11"
       
-      - name: Select Account Sequentially and Mask Credentials
+      - name: Select Account Sequentially (Top to Bottom)
         id: select_account
         env:
           ACCOUNTS_SECRET: ${{ secrets.BHLNK_ACCOUNTS }}
@@ -60,7 +60,8 @@ jobs:
           TOTAL_ACCOUNTS=$(echo "${ACCOUNTS_LIST}" | wc -l)
           
           ACCOUNT_INDEX=$(( (RUN_NUMBER - 1) % TOTAL_ACCOUNTS ))
-          ACCOUNT_LINE=$(echo "${ACCOUNTS_LIST}" | awk "NR==$((ACCOUNT_INDEX + 1))")
+          LINE_NUM=$((ACCOUNT_INDEX + 1))
+          ACCOUNT_LINE=$(echo "${ACCOUNTS_LIST}" | awk "NR==${LINE_NUM}")
           
           BHLNK_EMAIL_VALUE=$(echo "$ACCOUNT_LINE" | cut -d: -f1)
           BHLNK_PASSWORD_VALUE=$(echo "$ACCOUNT_LINE" | cut -d: -f2-)
@@ -72,7 +73,7 @@ jobs:
           echo "BHLNK_PASSWORD=${BHLNK_PASSWORD_VALUE}" >> $GITHUB_ENV
           
           echo "Run Number: ${RUN_NUMBER}"
-          echo "Using account from line $((ACCOUNT_INDEX + 1)): ${BHLNK_EMAIL_VALUE}"
+          echo "Using account from line ${LINE_NUM}: ${BHLNK_EMAIL_VALUE}"
 
       - name: Install system dependencies
         run: sudo apt-get update && sudo apt-get install -y python3-tk jq
@@ -110,80 +111,42 @@ jobs:
         run: |
           if [ -f "download_status.txt" ]; then
             STATUS=$(cat download_status.txt)
-            echo "Download status: $STATUS"
             echo "DOWNLOAD_STATUS=$STATUS" >> $GITHUB_OUTPUT
           else
-            echo "download_status.txt not found. Assuming script failed."
-            echo "DOWNLOAD_STATUS=DOWNLOAD_FAILED" >> $GITHUB_OUTPUT
+            echo "DOWNLOAD_STATUS=SCRIPT_ERROR" >> $GITHUB_OUTPUT
           fi
         shell: bash
 
-      - name: Upload Book and Prepare Info
-        id: upload_and_info
-        if: |
-          steps.status_reader.outputs.DOWNLOAD_STATUS == 'NEW' ||
-          steps.status_reader.outputs.DOWNLOAD_STATUS == 'UPDATED' ||
-          steps.status_reader.outputs.DOWNLOAD_STATUS == 'SUPPLEMENTED'
+      - name: Upload Book
+        if: steps.status_reader.outputs.DOWNLOAD_STATUS != 'SCRIPT_ERROR' && steps.status_reader.outputs.DOWNLOAD_STATUS != 'NOT_FOUND' && steps.status_reader.outputs.DOWNLOAD_STATUS != 'EXISTS'
         run: |
-          set -euo pipefail
+          if [ ! -f "folder_name.txt" ]; then exit 0; fi
           FOLDER_NAME=$(cat folder_name.txt)
-          CLEAN_FOLDER_NAME=$(echo "$FOLDER_NAME" | sed 's/[:*?"<>|]/_/g')
-          TARGET="${RCLONE_DEST}/${CLEAN_FOLDER_NAME}"
-          echo "Uploading '${FOLDER_NAME}' to '${TARGET}'..."
-          rclone copy "${FOLDER_NAME}" "${TARGET}" --transfers=8 --checkers=16 --progress
-          echo "Tải lên hoàn tất."
-          INFO_FILE_PATH="${FOLDER_NAME}/book_info.json"
-          BOOK_TITLE=$(jq -r '.name' "$INFO_FILE_PATH")
-          FOLDER_LINK=$(rclone link "${TARGET}" 2>/dev/null || echo "Không thể tạo link")
-          echo "BOOK_TITLE<<EOF" >> $GITHUB_OUTPUT; echo "$BOOK_TITLE" >> $GITHUB_OUTPUT; echo "EOF" >> $GITHUB_OUTPUT
-          echo "FOLDER_LINK<<EOF" >> $GITHUB_OUTPUT; echo "$FOLDER_LINK" >> $GITHUB_OUTPUT; echo "EOF" >> $GITHUB_OUTPUT
+          if [ -d "${FOLDER_NAME}" ]; then
+              TARGET="${RCLONE_DEST}/${FOLDER_NAME}"
+              rclone copy "${FOLDER_NAME}" "${TARGET}" --transfers=8 --checkers=16 --progress
+          fi
         shell: bash
 
-      - name: Send Notification (New/Updated/Supplemented)
-        if: success() && (steps.status_reader.outputs.DOWNLOAD_STATUS == 'NEW' || steps.status_reader.outputs.DOWNLOAD_STATUS == 'UPDATED' || steps.status_reader.outputs.DOWNLOAD_STATUS == 'SUPPLEMENTED')
+      - name: Send Success or Exists Notification
+        if: success() && (steps.status_reader.outputs.DOWNLOAD_STATUS == 'NEW' || steps.status_reader.outputs.DOWNLOAD_STATUS == 'UPDATED' || steps.status_reader.outputs.DOWNLOAD_STATUS == 'SUPPLEMENTED' || steps.status_reader.outputs.DOWNLOAD_STATUS == 'EXISTS')
         uses: appleboy/telegram-action@v1.0.0
         with:
           to: ${{ env.TELEGRAM_CHAT_ID }}
           token: ${{ env.TELEGRAM_BOT_TOKEN }}
           format: markdown
           disable_web_page_preview: true
-          message: |
-            ${{ steps.status_reader.outputs.DOWNLOAD_STATUS == 'NEW' && '✅ Tải Sách Hoàn Tất (Sách mới)' || '' }}${{ steps.status_reader.outputs.DOWNLOAD_STATUS == 'UPDATED' && '🔄 Tải Sách Hoàn Tất (Đã cập nhật)' || '' }}${{ steps.status_reader.outputs.DOWNLOAD_STATUS == 'SUPPLEMENTED' && '➕ Tải Sách Hoàn Tất (Bổ sung file thiếu)' || '' }}
-            📖 Sách: ${{ steps.upload_and_info.outputs.BOOK_TITLE }}
-            🆔 ID: ${{ env.BOOK_ID }}
-            🔗 Link Thư Mục: [Nhấn vào đây](${{ steps.upload_and_info.outputs.FOLDER_LINK }})
+          message_file: ./telegram_message.txt
 
-      - name: Send Notification (Already Exists)
-        if: success() && steps.status_reader.outputs.DOWNLOAD_STATUS == 'EXISTS'
-        uses: appleboy/telegram-action@v1.0.0
-        with:
-          to: ${{ env.TELEGRAM_CHAT_ID }}
-          token: ${{ env.TELEGRAM_BOT_TOKEN }}
-          format: markdown
-          message: |
-            ℹ️ Kiểm Tra Hoàn Tất (Sách đã có sẵn)
-            ID: `${{ env.BOOK_ID }}` - Không có cập nhật mới.
-
-      - name: Send Notification (Not Found)
-        if: success() && steps.status_reader.outputs.DOWNLOAD_STATUS == 'NOT_FOUND'
-        uses: appleboy/telegram-action@v1.0.0
-        with:
-          to: ${{ env.TELEGRAM_CHAT_ID }}
-          token: ${{ env.TELEGRAM_BOT_TOKEN }}
-          format: markdown
-          message: |
-            ⚠️ Quét Thất Bại (Không tồn tại)
-            ID: `${{ env.BOOK_ID }}` - Sách không tồn tại hoặc link bị hỏng.
-      
       - name: Send Failure Notification
-        if: failure() || cancelled() || steps.status_reader.outputs.DOWNLOAD_STATUS == 'DOWNLOAD_FAILED' || steps.status_reader.outputs.DOWNLOAD_STATUS == 'SCRIPT_ERROR'
+        if: failure() || cancelled() || steps.status_reader.outputs.DOWNLOAD_STATUS == 'SCRIPT_ERROR' || steps.status_reader.outputs.DOWNLOAD_STATUS == 'NOT_FOUND'
         uses: appleboy/telegram-action@v1.0.0
         with:
           to: ${{ env.TELEGRAM_CHAT_ID }}
           token: ${{ env.TELEGRAM_BOT_TOKEN }}
           format: markdown
           message: |
-            ❌ *Download Failed!*
+            ${{ steps.status_reader.outputs.DOWNLOAD_STATUS == 'NOT_FOUND' && '⚠️ Quét Thất Bại (Không tồn tại)' || '❌ Download Failed!' }}
             *Book ID:* `${{ env.BOOK_ID }}`
             *Status:* `${{ job.status }}`
             *Log:* Xem file đính kèm.

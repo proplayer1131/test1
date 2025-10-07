@@ -14,7 +14,7 @@ on:
       THREADS:
         description: "Số luồng tải ảnh đồng thời (max threads)"
         required: true
-        default: "256"
+        default: "512"
 
 env:
   TZ: Asia/Ho_Chi_Minh
@@ -55,29 +55,28 @@ jobs:
         with:
           python-version: "3.11"
       
-      - name: Select Account Sequentially and Mask Credentials
+      - name: Select Account from Pool 2 (Top to Bottom)
         id: select_account
         env:
-          ACCOUNTS_SECRET: ${{ secrets.BHLNK_ACCOUNTS }}
+          ACCOUNTS_SECRET: ${{ secrets.BHLNK_ACCOUNTS2 }}
           RUN_NUMBER: ${{ github.run_number }}
         run: |
           ACCOUNTS_LIST=$(echo "${ACCOUNTS_SECRET}" | sed '/^\s*$/d')
           TOTAL_ACCOUNTS=$(echo "${ACCOUNTS_LIST}" | wc -l)
           
           ACCOUNT_INDEX=$(( (RUN_NUMBER - 1) % TOTAL_ACCOUNTS ))
-          ACCOUNT_LINE=$(echo "${ACCOUNTS_LIST}" | awk "NR==$((ACCOUNT_INDEX + 1))")
+          LINE_NUM=$((ACCOUNT_INDEX + 1))
+          
+          ACCOUNT_LINE=$(echo "${ACCOUNTS_LIST}" | awk "NR==${LINE_NUM}")
           
           BHLNK_EMAIL_VALUE=$(echo "$ACCOUNT_LINE" | cut -d: -f1)
           BHLNK_PASSWORD_VALUE=$(echo "$ACCOUNT_LINE" | cut -d: -f2-)
           
-          echo "::add-mask::${BHLNK_EMAIL_VALUE}"
-          echo "::add-mask::${BHLNK_PASSWORD_VALUE}"
-          
+          echo "::add-mask::${BHLNK_EMAIL_VALUE}"; echo "::add-mask::${BHLNK_PASSWORD_VALUE}"
           echo "BHLNK_EMAIL=${BHLNK_EMAIL_VALUE}" >> $GITHUB_ENV
           echo "BHLNK_PASSWORD=${BHLNK_PASSWORD_VALUE}" >> $GITHUB_ENV
           
-          echo "Run Number: ${RUN_NUMBER}"
-          echo "Using account from line $((ACCOUNT_INDEX + 1)): ${BHLNK_EMAIL_VALUE}"
+          echo "Using account from BHLNK_ACCOUNTS2 line ${LINE_NUM}: ${BHLNK_EMAIL_VALUE}"
 
       - name: Install system dependencies
         run: sudo apt-get update && sudo apt-get install -y python3-tk jq
@@ -100,27 +99,53 @@ jobs:
           printf "%s" "$RCLONE_CONF_CONTENTS" > ~/.config/rclone/rclone.conf
           rclone version
 
-      - name: Show Run Parameters
-        run: |
-          echo "Start ID: ${{ env.FROM_ID }}"
-          echo "End ID: ${{ env.TO_ID }}"
-          echo "Threads: ${{ env.THREADS }}"
-
       - name: Run Intelligent Crawl Script
         run: python -u scripts/crawl_range.py | tee crawl.log
 
-      - name: Send Final Job Status (Success)
-        if: success()
+      - name: Send Summary Notification
+        if: always()
         uses: appleboy/telegram-action@v1.0.0
         with:
           to: ${{ secrets.TELEGRAM_CHAT_ID }}
           token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           format: markdown
           message: |
-            ✅ *Crawl Job Finished*
-            Đã hoàn tất quá trình quét sách từ ID `${{ env.FROM_ID }}` đến `${{ env.TO_ID }}`.
+            ${{ job.status == 'success' && '✅' || '❌' }} *Crawl Job Finished*
+            Quá trình quét sách từ ID `${{ env.FROM_ID }}` đến `${{ env.TO_ID }}` đã hoàn tất với trạng thái: `${{ job.status }}`.
+            
+            Đang gửi thông báo chi tiết cho từng sách...
 
-      - name: Send Final Job Status (Failure)
+      - name: Send Detailed Book Notifications
+        if: success()
+        run: |
+          # Dùng awk để trích xuất nội dung giữa các thẻ đánh dấu và lưu vào biến
+          MESSAGES=$(awk '/TELEGRAM_MESSAGE_START/{flag=1; msg=""; next} /TELEGRAM_MESSAGE_END/{flag=0; print msg; print "---"; msg=""} flag{msg=(msg=="" ? "" : msg"\\n") $0}' crawl.log)
+          
+          # Đọc từng tin nhắn (phân tách bằng "---") và gửi đi
+          echo "$MESSAGES" | while IFS= read -r line; do
+              if [ "$line" = "---" ]; then
+                  if [ -n "$message" ]; then
+                      # Gửi tin nhắn bằng cách gọi API của Telegram qua curl
+                      curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+                      --data-urlencode "chat_id=${{ secrets.TELEGRAM_CHAT_ID }}" \
+                      --data-urlencode "text=$message" \
+                      --data-urlencode "parse_mode=Markdown" \
+                      --data-urlencode "disable_web_page_preview=true"
+                      echo # Thêm một dòng trống cho log
+                      sleep 1 # Dừng 1 giây giữa các tin nhắn
+                  fi
+                  message=""
+              else
+                  # Nối các dòng của một tin nhắn lại với nhau
+                  if [ -z "$message" ]; then
+                      message="$line"
+                  else
+                      message="$message"$'\n'"$line"
+                  fi
+              fi
+          done
+
+      - name: Send Final Failure Status
         if: failure() || cancelled()
         uses: appleboy/telegram-action@v1.0.0
         with:
