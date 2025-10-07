@@ -64,8 +64,8 @@ jobs:
     - name: Create Result Message
       if: success()
       run: |
-        echo "✅ **Tải Sách Hoàn Tất**" > telegram_message.txt
-        echo "🔗 **Link:** [Nhấn vào đây](${{ steps.onedrive.outputs.public_link }})" >> telegram_message.txt
+        echo "✅ Tải Sách Hoàn Tất" > telegram_message.txt
+        echo "🔗 Link: [Nhấn vào đây](${{ steps.onedrive.outputs.public_link }})" >> telegram_message.txt
 
     - name: Upload Result Message
       if: success() && hashFiles('telegram_message.txt') != ''
