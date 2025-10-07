@@ -48,24 +48,25 @@ jobs:
         mkdir -p ~/.config/rclone
         echo "$RCLONE_CONF" > ~/.config/rclone/rclone.conf
 
-    - name: Upload to 1Drive and get link
+    - name: Sanitize, Upload to 1Drive, and get link
       id: onedrive
       run: |
-        BOOK_FILENAME=$(ls output/* | head -n 1)
-        rclone copy "$BOOK_FILENAME" "1drive:Scribd_download" --progress
-        PUBLIC_LINK=$(rclone link "1drive:Scribd_download/$(basename "$BOOK_FILENAME")")
+        ORIGINAL_FILENAME=$(ls output/* | head -n 1)
+        SANITIZED_BASENAME=$(basename "$ORIGINAL_FILENAME" | sed 's#[*:<>?\/\\|]#_#g')
+        if [ "$(basename "$ORIGINAL_FILENAME")" != "$SANITIZED_BASENAME" ]; then
+          mv "$ORIGINAL_FILENAME" "output/$SANITIZED_BASENAME"
+        fi
+        rclone copy "output/$SANITIZED_BASENAME" "1drive:Scribd_download" --progress
+        PUBLIC_LINK=$(rclone link "1drive:Scribd_download/$SANITIZED_BASENAME")
         echo "public_link=$PUBLIC_LINK" >> $GITHUB_OUTPUT
 
     - name: Scrape Document Title
       id: scrape_title
       run: |
-        # Lệnh mới chính xác hơn: tìm đúng khối h1, xóa tag, xóa dòng trống
         TITLE=$(curl -sL "${{ steps.normalize.outputs.url }}" | \
-                sed -n '/<h1.*data-e2e="doc_page_title"/, /<\/h1>/p' | \
-                sed -e 's/<[^>]*>//g' | \
-                awk 'NF' | \
-                tr -d '\n' | \
-                xargs)
+                tr '\n' ' ' | \
+                sed -n 's/.*<h1[^>]*data-e2e="doc_page_title"[^>]*>\(.*\)<\/h1>.*/\1/p' | \
+                sed -e 's/<[^>]*>//g' -e 's/^[ \t]*//;s/[ \t]*$//' -e 's/  */ /g')
         echo "DOCUMENT_TITLE=$TITLE" >> $GITHUB_OUTPUT
 
     - name: Create Result Message

@@ -16,7 +16,7 @@ on:
         required: true
         default: "no"
         type: choice
-        options:
+        options: # <-- Lỗi cú pháp đã được sửa ở đây
           - "yes"
           - "no"
 
@@ -32,6 +32,7 @@ jobs:
       THREADS: ${{ github.event.inputs.THREADS }}
       MERGE_PDF: ${{ github.event.inputs.MERGE_TO_SINGLE_FILE }}
       PYTHONPATH: ${{ github.workspace }}
+      RCLONE_DEST: ${{ secrets.RCLONE_DEST || '1drive:/LSC_Books' }}
 
     steps:
       - name: Checkout repository
@@ -82,7 +83,33 @@ jobs:
       - name: Run Intelligent Download Script
         id: download_script
         run: python -u scripts/download_one.py
-     
+
+      - name: Sanitize Folder Name
+        id: sanitize
+        if: hashFiles('folder_name.txt') != ''
+        run: |
+          ORIGINAL_NAME=$(cat folder_name.txt)
+          SANITIZED_NAME=$(echo "$ORIGINAL_NAME" | sed 's#[*:<>?\/\\|]#_#g')
+          if [ "$ORIGINAL_NAME" != "$SANITIZED_NAME" ]; then
+            mv -- "$ORIGINAL_NAME" "$SANITIZED_NAME"
+          fi
+          echo "sanitized_name=$SANITIZED_NAME" >> $GITHUB_OUTPUT
+
+      - name: Upload Book
+        if: steps.sanitize.outputs.sanitized_name != ''
+        run: |
+          FOLDER_NAME="${{ steps.sanitize.outputs.sanitized_name }}"
+          TARGET="${RCLONE_DEST}/${FOLDER_NAME}"
+          rclone copy "${FOLDER_NAME}" "${TARGET}" --transfers=8 --checkers=16 --progress
+        shell: bash
+
+      - name: Add Original Book Link
+        if: success() && hashFiles('telegram_message.txt') != ''
+        run: |
+          BOOK_URL="https://sachyhocpdf.com.vn/books/${{ env.BOOK_ID }}"
+          echo "" >> telegram_message.txt
+          echo "ℹ️ **Sách gốc:** [Click vào đây]($BOOK_URL)" >> telegram_message.txt
+
       - name: Upload Result Message
         if: success() && hashFiles('telegram_message.txt') != ''
         uses: actions/upload-artifact@v4

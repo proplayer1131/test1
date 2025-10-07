@@ -85,12 +85,13 @@ jobs:
           printf "%s" "$RCLONE_CONF_CONTENTS" > ~/.config/rclone/rclone.conf
 
       - name: Run Intelligent Crawl Script
-        run: python -u scripts/crawl_range.py
-     
-      - name: Upload Result Message
-        if: success() && hashFiles('telegram_message.txt') != ''
+        run: python -u scripts/crawl_range.py | tee crawl.log
+
+
+      - name: Upload Crawl Log as Artifact
+        if: always() # Luôn chạy, dù thành công hay thất bại
         uses: actions/upload-artifact@v4
         with:
-          name: result-message-${{ github.run_id }}
-          path: telegram_message.txt
+          name: crawl-log-${{ github.run_id }}
+          path: crawl.log
           retention-days: 1
