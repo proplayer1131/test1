@@ -22,8 +22,6 @@ on:
 
 env:
   TZ: Asia/Ho_Chi_Minh
-  PYTHONUNBUFFERED: "1"
-  PIP_DISABLE_PIP_VERSION_CHECK: "1"
 
 jobs:
   download:
@@ -32,11 +30,8 @@ jobs:
     env:
       BOOK_ID: ${{ github.event.inputs.BOOK_ID }}
       THREADS: ${{ github.event.inputs.THREADS }}
-      MERGE_PDF: ${{ github.event.inputs.MERGE_TO_SINGLE_FILE }} # Truyền lựa chọn vào biến môi trường
+      MERGE_PDF: ${{ github.event.inputs.MERGE_TO_SINGLE_FILE }}
       PYTHONPATH: ${{ github.workspace }}
-      RCLONE_DEST: ${{ secrets.RCLONE_DEST || '1drive:/LSC_Books' }}
-      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
 
     steps:
       - name: Checkout repository
@@ -50,7 +45,7 @@ jobs:
         with:
           python-version: "3.11"
       
-      - name: Select Account Sequentially (Top to Bottom)
+      - name: Select Account Sequentially
         id: select_account
         env:
           ACCOUNTS_SECRET: ${{ secrets.BHLNK_ACCOUNTS }}
@@ -58,28 +53,17 @@ jobs:
         run: |
           ACCOUNTS_LIST=$(echo "${ACCOUNTS_SECRET}" | sed '/^\s*$/d')
           TOTAL_ACCOUNTS=$(echo "${ACCOUNTS_LIST}" | wc -l)
-          
           ACCOUNT_INDEX=$(( (RUN_NUMBER - 1) % TOTAL_ACCOUNTS ))
           LINE_NUM=$((ACCOUNT_INDEX + 1))
           ACCOUNT_LINE=$(echo "${ACCOUNTS_LIST}" | awk "NR==${LINE_NUM}")
-          
           BHLNK_EMAIL_VALUE=$(echo "$ACCOUNT_LINE" | cut -d: -f1)
           BHLNK_PASSWORD_VALUE=$(echo "$ACCOUNT_LINE" | cut -d: -f2-)
-          
-          echo "::add-mask::${BHLNK_EMAIL_VALUE}"
-          echo "::add-mask::${BHLNK_PASSWORD_VALUE}"
-          
           echo "BHLNK_EMAIL=${BHLNK_EMAIL_VALUE}" >> $GITHUB_ENV
           echo "BHLNK_PASSWORD=${BHLNK_PASSWORD_VALUE}" >> $GITHUB_ENV
-          
-          echo "Run Number: ${RUN_NUMBER}"
-          echo "Using account from line ${LINE_NUM}: ${BHLNK_EMAIL_VALUE}"
 
-      - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y python3-tk jq
-
-      - name: Install Python dependencies
+      - name: Install dependencies
         run: |
+          sudo apt-get update && sudo apt-get install -y python3-tk jq
           python -m pip install -U pip
           pip install requests Pillow psutil
           if [ -f requirements.txt ]; then
@@ -94,49 +78,7 @@ jobs:
           curl -fsSL https://rclone.org/install.sh | sudo bash
           mkdir -p ~/.config/rclone
           printf "%s" "$RCLONE_CONF_CONTENTS" > ~/.config/rclone/rclone.conf
-          rclone version
           
-      - name: Show Run Parameters
-        run: |
-          echo "Book ID: ${{ env.BOOK_ID }}"
-          echo "Threads: ${{ env.THREADS }}"
-          echo "Merge PDF: ${{ env.MERGE_PDF }}"
-
       - name: Run Intelligent Download Script
         id: download_script
-        run: python -u scripts/download_one.py | tee download.log
-
-      - name: Read Download Status
-        id: status_reader
-        run: |
-          if [ -f "download_status.txt" ]; then
-            STATUS=$(cat download_status.txt)
-            echo "DOWNLOAD_STATUS=$STATUS" >> $GITHUB_OUTPUT
-          else
-            echo "DOWNLOAD_STATUS=SCRIPT_ERROR" >> $GITHUB_OUTPUT
-          fi
-        shell: bash
-
-      - name: Send Success or Exists Notification
-        if: success() && (steps.status_reader.outputs.DOWNLOAD_STATUS == 'NEW' || steps.status_reader.outputs.DOWNLOAD_STATUS == 'UPDATED' || steps.status_reader.outputs.DOWNLOAD_STATUS == 'SUPPLEMENTED' || steps.status_reader.outputs.DOWNLOAD_STATUS == 'EXISTS')
-        uses: appleboy/telegram-action@v1.0.0
-        with:
-          to: ${{ env.TELEGRAM_CHAT_ID }}
-          token: ${{ env.TELEGRAM_BOT_TOKEN }}
-          format: markdown
-          disable_web_page_preview: false
-          message_file: ./telegram_message.txt
-
-      - name: Send Failure Notification
-        if: failure() || cancelled() || steps.status_reader.outputs.DOWNLOAD_STATUS == 'SCRIPT_ERROR' || steps.status_reader.outputs.DOWNLOAD_STATUS == 'NOT_FOUND'
-        uses: appleboy/telegram-action@v1.0.0
-        with:
-          to: ${{ env.TELEGRAM_CHAT_ID }}
-          token: ${{ env.TELEGRAM_BOT_TOKEN }}
-          format: markdown
-          message: |
-            ${{ steps.status_reader.outputs.DOWNLOAD_STATUS == 'NOT_FOUND' && '⚠️ Quét Thất Bại (Không tồn tại)' || '❌ Download Failed!' }}
-            *Book ID:* `${{ env.BOOK_ID }}`
-            *Status:* `${{ job.status }}`
-            *Log:* Xem file đính kèm.
-          document: ./download.log
+        run: python -u scripts/download_one.py
