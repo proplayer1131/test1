@@ -33,8 +33,9 @@ jobs:
       BHLNK_PASSWORD: ${{ secrets.BHLNK_PASSWORD }}
       PYTHONPATH: ${{ github.workspace }}
       RCLONE_DEST: ${{ secrets.RCLONE_DEST || '1drive:/LSC_Books' }}
-      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      # Truyền secrets của Telegram vào môi trường để script Python sử dụng
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
 
     steps:
       - name: Maximize build space
@@ -63,7 +64,7 @@ jobs:
       - name: Install Python dependencies
         run: |
           python -m pip install -U pip
-          pip install requests Pillow psutil
+          pip install requests Pillow
           if [ -f requirements.txt ]; then
             grep -v -E 'tkinter|pywin32|win32mica|upx|customtkinter|futures|tqdm' requirements.txt > requirements_linux.txt
             pip install -r requirements_linux.txt
@@ -81,57 +82,26 @@ jobs:
       - name: Run Intelligent Crawl Script
         run: python -u scripts/crawl_range.py | tee crawl.log
 
-      - name: Upload downloaded books
-        run: |
-          set -euo pipefail
-          shopt -s nullglob
-          
-          # Tìm tất cả các thư mục chứa sách đã được tải về (có chứa book_info.json)
-          book_folders=(*_*/*book_info.json)
-
-          if [ ${#book_folders[@]} -eq 0 ]; then
-            echo "Không có sách nào được tải mới hoặc cập nhật. Bỏ qua upload."
-            exit 0
-          fi
-
-          echo "Bắt đầu tải lên các sách đã download..."
-          for info_file in "${book_folders[@]}"; do
-            book_folder=$(dirname "$info_file")
-            folder_name=$(basename "$book_folder")
-            
-            # Chỉ upload nếu có file PDF, tránh upload thư mục rỗng
-            if ls "${book_folder}"/*.pdf &> /dev/null; then
-              TARGET="${RCLONE_DEST}/${folder_name}"
-              echo "Uploading ${folder_name} to ${TARGET}"
-              rclone copy "${book_folder}" "${TARGET}" --transfers=8 --checkers=16 --progress
-            fi
-          done
-
-          echo "Hoàn tất upload."
-
-      - name: Send Success Notification
+      - name: Send Final Job Status (Success)
         if: success()
         uses: appleboy/telegram-action@v1.0.0
         with:
-          to: ${{ env.TELEGRAM_CHAT_ID }}
-          token: ${{ env.TELEGRAM_BOT_TOKEN }}
+          to: ${{ secrets.TELEGRAM_CHAT_ID }}
+          token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           format: markdown
           message: |
-            ✅ *Crawl Success!*
-            Đã quét xong sách từ ID `${{ env.FROM_ID }}` đến `${{ env.TO_ID }}`.
-            Xem chi tiết trong file log đính kèm.
-          document: ./crawl.log
+            ✅ *Crawl Job Finished*
+            Đã hoàn tất quá trình quét sách từ ID `${{ env.FROM_ID }}` đến `${{ env.TO_ID }}`.
 
-      - name: Send Failure Notification
+      - name: Send Final Job Status (Failure)
         if: failure() || cancelled()
         uses: appleboy/telegram-action@v1.0.0
         with:
-          to: ${{ env.TELEGRAM_CHAT_ID }}
-          token: ${{ env.TELEGRAM_BOT_TOKEN }}
+          to: ${{ secrets.TELEGRAM_CHAT_ID }}
+          token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           format: markdown
           message: |
-            ❌ *Crawl Failed!*
-            *Range:* `${{ env.FROM_ID }}` - `${{ env.TO_ID }}`
-            *Status:* `${{ job.status }}`
-            Xem chi tiết trong file log đính kèm.
+            ❌ *Crawl Job Failed!*
+            Quá trình quét sách từ ID `${{ env.FROM_ID }}` đến `${{ env.TO_ID }}` đã thất bại.
+            Xem file log đính kèm để biết chi tiết.
           document: ./crawl.log
