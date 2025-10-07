@@ -1,4 +1,4 @@
-name: Scribd Downloader
+name: "Scribd Downloader"
 
 on:
   workflow_dispatch:
@@ -10,7 +10,6 @@ on:
 jobs:
   download:
     runs-on: ubuntu-latest
-
     steps:
     - name: Checkout downloader repository
       uses: actions/checkout@v4
@@ -62,22 +61,10 @@ jobs:
         echo "::add-mask::$PUBLIC_LINK"
         echo "public_link=$PUBLIC_LINK" >> $GITHUB_OUTPUT
 
-    - name: Scrape Document Title
-      id: scrape_title
-      run: |
-        # Lệnh mới: cô lập khối h1, sau đó chỉ trích xuất nội dung từ thẻ p bên trong.
-        TITLE=$(curl -sL "${{ steps.normalize.outputs.url }}" | \
-                sed -n '/<h1.*data-e2e="doc_page_title"/, /<\/h1>/p' | \
-                sed -n 's/.*<p[^>]*>\(.*\)<\/p>.*/\1/p' | \
-                sed 's/<[^>]*>//g' | \
-                xargs)
-        echo "DOCUMENT_TITLE=$TITLE" >> $GITHUB_OUTPUT
-
     - name: Create Result Message
       if: success()
       run: |
         echo "✅ **Tải Sách Hoàn Tất**" > telegram_message.txt
-        echo "📖 **Sách:** ${{ steps.scrape_title.outputs.DOCUMENT_TITLE }}" >> telegram_message.txt
         echo "🔗 **Link:** [Nhấn vào đây](${{ steps.onedrive.outputs.public_link }})" >> telegram_message.txt
 
     - name: Upload Result Message
