@@ -1,7 +1,7 @@
 name: "Intelligent Crawler"
 
 concurrency:
-  group: ${{ github.workflow }}-login-pool
+  group: blick-login-pool
   cancel-in-progress: false
 
 on:
@@ -18,7 +18,7 @@ on:
       THREADS:
         description: "Số luồng tải ảnh đồng thời (max threads)"
         required: true
-        default: "64"
+        default: "64" # <-- ĐÃ THAY ĐỔI
 
 env:
   TZ: Asia/Ho_Chi_Minh
@@ -59,16 +59,28 @@ jobs:
         with:
           python-version: "3.11"
       
-      - name: Select Account from Pool
+      - name: Select Account and Mask Credentials
         id: select_account
         env:
           ACCOUNTS_SECRET: ${{ secrets.BHLNK_ACCOUNTS }}
+          RUN_NUMBER: ${{ github.run_number }}
         run: |
-          ACCOUNT_LINE=$(echo "${ACCOUNTS_SECRET}" | sed '/^\s*$/d' | shuf -n 1)
+          ACCOUNTS_LIST=$(echo "${ACCOUNTS_SECRET}" | sed '/^\s*$/d')
+          TOTAL_ACCOUNTS=$(echo "${ACCOUNTS_LIST}" | wc -l)
+          ACCOUNT_INDEX=$(( (RUN_NUMBER - 1) % TOTAL_ACCOUNTS ))
+          ACCOUNT_LINE=$(echo "${ACCOUNTS_LIST}" | awk "NR==$((ACCOUNT_INDEX + 1))")
+          
           BHLNK_EMAIL_VALUE=$(echo "$ACCOUNT_LINE" | cut -d: -f1)
           BHLNK_PASSWORD_VALUE=$(echo "$ACCOUNT_LINE" | cut -d: -f2-)
+          
+          # --- MỚI: Che email và password trong log ---
+          echo "::add-mask::${BHLNK_EMAIL_VALUE}"
+          echo "::add-mask::${BHLNK_PASSWORD_VALUE}"
+
           echo "BHLNK_EMAIL=${BHLNK_EMAIL_VALUE}" >> $GITHUB_ENV
           echo "BHLNK_PASSWORD=${BHLNK_PASSWORD_VALUE}" >> $GITHUB_ENV
+          
+          echo "Run number: ${RUN_NUMBER}, Total accounts: ${TOTAL_ACCOUNTS}, Selected index: ${ACCOUNT_INDEX}"
           echo "Using account: ${BHLNK_EMAIL_VALUE}"
 
       - name: Install system dependencies
@@ -91,7 +103,7 @@ jobs:
           mkdir -p ~/.config/rclone
           printf "%s" "$RCLONE_CONF_CONTENTS" > ~/.config/rclone/rclone.conf
           rclone version
-          
+
       - name: Show Run Parameters
         run: |
           echo "Start ID: ${{ env.FROM_ID }}"
