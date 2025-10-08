@@ -57,8 +57,7 @@ jobs:
           mv "$ORIGINAL_FILENAME" "output/$SANITIZED_BASENAME"
         fi
         rclone copy "output/$SANITIZED_BASENAME" "1drive:Scribd_download" --progress
-        # Lấy link của thư mục chứa file, không phải link file trực tiếp
-        PUBLIC_LINK=$(rclone link "1drive:Scribd_download")
+        PUBLIC_LINK=$(rclone link "1drive:Scribd_download/$SANITIZED_BASENAME")
         echo "::add-mask::$PUBLIC_LINK"
         echo "public_link=$PUBLIC_LINK" >> $GITHUB_OUTPUT
 
