@@ -48,7 +48,7 @@ jobs:
         mkdir -p ~/.config/rclone
         echo "$RCLONE_CONF" > ~/.config/rclone/rclone.conf
 
-    - name: Sanitize, Upload to 1Drive, and Mask Link
+    - name: Sanitize, Upload, and Get Folder Link
       id: onedrive
       run: |
         ORIGINAL_FILENAME=$(ls output/* | head -n 1)
@@ -57,7 +57,8 @@ jobs:
           mv "$ORIGINAL_FILENAME" "output/$SANITIZED_BASENAME"
         fi
         rclone copy "output/$SANITIZED_BASENAME" "1drive:Scribd_download" --progress
-        PUBLIC_LINK=$(rclone link "1drive:Scribd_download/$SANITIZED_BASENAME")
+        # Lấy link của thư mục chứa file, không phải link file trực tiếp
+        PUBLIC_LINK=$(rclone link "1drive:Scribd_download")
         echo "::add-mask::$PUBLIC_LINK"
         echo "public_link=$PUBLIC_LINK" >> $GITHUB_OUTPUT
 
