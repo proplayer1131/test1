@@ -77,6 +77,17 @@ jobs:
       - name: Run Intelligent Download Script
         id: download_script
         run: python -u scripts/download_one.py
+      - name: Read Download Status
+        id: status_reader
+        if: always()
+        run: |
+          if [ -f "download_status.txt" ]; then
+            STATUS=$(cat download_status.txt)
+            echo "DOWNLOAD_STATUS=$STATUS" >> $GITHUB_OUTPUT
+          else
+            echo "DOWNLOAD_STATUS=SCRIPT_ERROR" >> $GITHUB_OUTPUT
+          fi
+        shell: bash
       - name: Sanitize Folder Name
         id: sanitize
         if: hashFiles('folder_name.txt') != ''
@@ -88,7 +99,7 @@ jobs:
           fi
           echo "sanitized_name=$SANITIZED_NAME" >> $GITHUB_OUTPUT
       - name: Upload Book
-        if: steps.sanitize.outputs.sanitized_name != ''
+        if: steps.status_reader.outputs.DOWNLOAD_STATUS != 'EXISTS' && steps.status_reader.outputs.DOWNLOAD_STATUS != 'SCRIPT_ERROR' && steps.status_reader.outputs.DOWNLOAD_STATUS != 'NOT_FOUND' && steps.sanitize.outputs.sanitized_name != ''
         run: |
           FOLDER_NAME="${{ steps.sanitize.outputs.sanitized_name }}"
           TARGET="${RCLONE_DEST}/${FOLDER_NAME}"
