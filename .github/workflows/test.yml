@@ -1,0 +1,70 @@
+name: OTA Firmware Dumper
+
+on:
+  workflow_dispatch:
+    inputs:
+      ROM_URL:
+        description: 'URL to the OTA zip file'
+        required: true
+        default: 'YOUR_ROM_LINK_HERE'
+
+jobs:
+  dump-firmware:
+    runs-on: ubuntu-latest
+    steps:
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          repository: 'proplayer1131/new-dump'
+          token: ${{ secrets.ACTION_TOKEN }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+
+      - name: Install dependencies and rclone
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y aria2 liblz4-tool
+          pip install poetry
+          poetry install
+          curl https://rclone.org/install.sh | sudo bash
+          
+      - name: Download and set up erofs-utils
+        run: |
+          aria2c -x16 -s16 https://git.kernel.org/pub/scm/linux/kernel/git/xiang/erofs-utils.git/snapshot/erofs-utils-1.6.tar.gz
+          tar -xzf erofs-utils-1.6.tar.gz
+          cd erofs-utils-1.6/
+          ./autogen.sh
+          ./configure
+          make
+          sudo make install
+
+      - name: Download ROM
+        run: |
+          aria2c -x16 -s16 -j5 --file-allocation=none --summary-interval=10 "${{ github.event.inputs.ROM_URL }}"
+
+      - name: Process downloaded ROM
+        id: process_step
+        run: |
+          chmod +x $GITHUB_WORKSPACE/scripts/dump_and_extract.sh
+          ROM_FILENAME=$(basename "${{ github.event.inputs.ROM_URL }}")
+          $GITHUB_WORKSPACE/scripts/dump_and_extract.sh "$ROM_FILENAME"
+          echo "ota_filename=$ROM_FILENAME" >> $GITHUB_OUTPUT
+
+      - name: Configure rclone
+        run: |
+          mkdir -p ~/.config/rclone
+          echo "${{ secrets.RCLONE_CONF }}" > ~/.config/rclone/rclone.conf
+      
+      - name: Upload to OneDrive
+        run: |
+          # Tạo một thư mục duy nhất trên OneDrive dựa theo tên file ROM
+          UPLOAD_PATH="OTA_DUMPS/${{ steps.process_step.outputs.ota_filename }}"
+          
+          # Tải thư mục output và extracted lên OneDrive
+          # Đảm bảo remote '1drive' trong rclone.conf của bạn là của OneDrive
+          rclone copy output "1drive:$UPLOAD_PATH/output" --progress
+          rclone copy extracted "1drive:$UPLOAD_PATH/extracted" --progress
