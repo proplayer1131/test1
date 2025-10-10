@@ -6,6 +6,9 @@ on:
       ROM_URL:
         description: 'URL to the OTA zip file'
         required: true
+      CUSTOM_FOLDER_NAME:
+        description: 'Optional: Custom folder name for the upload. If empty, uses the original filename.'
+        required: false
         default: ''
 
 jobs:
@@ -51,17 +54,19 @@ jobs:
           make
           sudo make install
 
-      - name: Download ROM
+      - name: Download and Rename ROM
         run: |
-          aria2c -x16 -s16 -j5 --file-allocation=none --summary-interval=10 "${{ github.event.inputs.ROM_URL }}"
+          aria2c -x16 -s16 -j5 --file-allocation=none --summary-interval=10 -o rom.zip "${{ github.event.inputs.ROM_URL }}"
 
       - name: Process File
         id: process_step
         run: |
           chmod +x $GITHUB_WORKSPACE/scripts/dump_and_extract.sh
-          ROM_FILENAME=$(basename "${{ github.event.inputs.ROM_URL }}")
-          $GITHUB_WORKSPACE/scripts/dump_and_extract.sh "$ROM_FILENAME"
-          echo "ota_filename=$ROM_FILENAME" >> $GITHUB_OUTPUT
+          # Process the renamed file
+          $GITHUB_WORKSPACE/scripts/dump_and_extract.sh "rom.zip"
+          # Keep the original filename for the default folder name
+          ORIGINAL_FILENAME=$(basename "${{ github.event.inputs.ROM_URL }}")
+          echo "original_filename=$ORIGINAL_FILENAME" >> $GITHUB_OUTPUT
 
       - name: Configure rclone
         run: |
@@ -73,6 +78,12 @@ jobs:
         env:
           RCLONE_DEST: "1drive:OTA_DUMPS"
         run: |
-          FOLDER_NAME="${{ steps.process_step.outputs.ota_filename }}"
+          # Use custom folder name if provided, otherwise use the original filename
+          if [[ -n "${{ github.event.inputs.CUSTOM_FOLDER_NAME }}" ]]; then
+            FOLDER_NAME="${{ github.event.inputs.CUSTOM_FOLDER_NAME }}"
+          else
+            FOLDER_NAME="${{ steps.process_step.outputs.original_filename }}"
+          fi
+          
           echo "Uploading 'output' and 'extracted' directories to ${RCLONE_DEST}/${FOLDER_NAME} ..."
           rclone copy . "${RCLONE_DEST}/${FOLDER_NAME}" --include "/output/**" --include "/extracted/**" --transfers=8 --checkers=16 --progress
