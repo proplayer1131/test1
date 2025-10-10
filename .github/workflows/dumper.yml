@@ -7,9 +7,18 @@ on:
         description: 'URL to the OTA zip file'
         required: true
       CUSTOM_FOLDER_NAME:
-        description: 'Optional: Custom folder name for the upload. If empty, uses the original filename.'
+        description: 'Optional: Custom folder name for upload. If empty, uses original filename.'
         required: false
         default: ''
+      UPLOAD_TARGETS:
+        description: 'Select which directories to upload.'
+        required: true
+        type: choice
+        options:
+          - extracted
+          - output
+          - both
+        default: 'extracted'
 
 jobs:
   dump:
@@ -62,9 +71,7 @@ jobs:
         id: process_step
         run: |
           chmod +x $GITHUB_WORKSPACE/scripts/dump_and_extract.sh
-          # Process the renamed file
           $GITHUB_WORKSPACE/scripts/dump_and_extract.sh "rom.zip"
-          # Keep the original filename for the default folder name
           ORIGINAL_FILENAME=$(basename "${{ github.event.inputs.ROM_URL }}")
           echo "original_filename=$ORIGINAL_FILENAME" >> $GITHUB_OUTPUT
 
@@ -78,12 +85,35 @@ jobs:
         env:
           RCLONE_DEST: "1drive:OTA_DUMPS"
         run: |
-          # Use custom folder name if provided, otherwise use the original filename
           if [[ -n "${{ github.event.inputs.CUSTOM_FOLDER_NAME }}" ]]; then
             FOLDER_NAME="${{ github.event.inputs.CUSTOM_FOLDER_NAME }}"
           else
             FOLDER_NAME="${{ steps.process_step.outputs.original_filename }}"
           fi
           
-          echo "Uploading 'output' and 'extracted' directories to ${RCLONE_DEST}/${FOLDER_NAME} ..."
-          rclone copy . "${RCLONE_DEST}/${FOLDER_NAME}" --include "/output/**" --include "/extracted/**" --transfers=8 --checkers=16 --progress
+          INCLUDE_FLAGS=""
+          if [[ "${{ github.event.inputs.UPLOAD_TARGETS }}" == "extracted" ]]; then
+            INCLUDE_FLAGS="--include /extracted/**"
+            echo "Upload target: extracted"
+          elif [[ "${{ github.event.inputs.UPLOAD_TARGETS }}" == "output" ]]; then
+            INCLUDE_FLAGS="--include /output/**"
+            echo "Upload target: output"
+          elif [[ "${{ github.event.inputs.UPLOAD_TARGETS }}" == "both" ]]; then
+            INCLUDE_FLAGS="--include /output/** --include /extracted/**"
+            echo "Upload target: output and extracted"
+          fi
+          
+          echo "Preparing to upload to ${RCLONE_DEST}/${FOLDER_NAME}"
+          echo "-----------------------------------------------------"
+          echo "Calculating total files and size..."
+          rclone size . $INCLUDE_FLAGS
+          echo "-----------------------------------------------------"
+
+          echo "Starting upload..."
+          rclone copy . "${RCLONE_DEST}/${FOLDER_NAME}" \
+            $INCLUDE_FLAGS \
+            --transfers=8 \
+            --checkers=16 \
+            --log-level NOTICE \
+            --stats-one-line \
+            --stats 30s
