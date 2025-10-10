@@ -23,15 +23,18 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.9'
-
-      - name: Install dependencies and rclone
+      - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y aria2 liblz4-tool
+          # THÊM MỚI: Cài đặt uuid-dev để build erofs-utils
+          sudo apt-get install -y aria2 uuid-dev liblz4-tool
           pip install poetry
+          # SỬA LỖI: Tự động sửa tên tệp readme trước khi cài đặt
+          sed -i 's/README.md/readme.md/g' pyproject.toml
           poetry install
           curl https://rclone.org/install.sh | sudo bash
-          
+
+         
       - name: Download and set up erofs-utils
         run: |
           aria2c -x16 -s16 https://git.kernel.org/pub/scm/linux/kernel/git/xiang/erofs-utils.git/snapshot/erofs-utils-1.6.tar.gz
