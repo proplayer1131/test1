@@ -68,11 +68,11 @@ jobs:
           ORIGINAL_FILENAME=$(basename "${{ github.event.inputs.ROM_URL }}")
           echo "original_filename=$ORIGINAL_FILENAME" >> $GITHUB_OUTPUT
 
-      - name: Configure rclone
+      - name: Configure rclone from Base64 secret
         run: |
           curl https://rclone.org/install.sh | sudo bash
           mkdir -p ~/.config/rclone
-          echo "${{ secrets.RCLONE_CONF }}" > ~/.config/rclone/rclone.conf
+          echo "${{ secrets.RCLONE_CONF2}}" | base64 --decode > ~/.config/rclone/rclone.conf
 
       - name: Upload Dumps to OneDrive
         env:
