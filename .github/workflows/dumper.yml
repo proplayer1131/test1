@@ -82,6 +82,14 @@ jobs:
           mkdir -p ~/.config/rclone
           echo "${{ secrets.RCLONE_CONF2}}" | base64 --decode > ~/.config/rclone/rclone.conf
 
+      - name: Clean non-APK files if apk_only is selected
+        if: github.event.inputs.UPLOAD_TARGETS == 'apk_only'
+        run: |
+          echo "Selected apk_only. Cleaning 'extracted' directory..."
+          find extracted/ -type f ! -name "*.apk" -delete
+          find extracted/ -type d -empty -delete
+          echo "Cleaning complete. Only APK files and their parent directories remain."
+
       - name: Upload Dumps to OneDrive
         env:
           RCLONE_DEST: "1drive:OTA_DUMPS"
@@ -99,20 +107,17 @@ jobs:
           elif [[ "${{ github.event.inputs.UPLOAD_TARGETS }}" == "output" ]]; then
             INCLUDE_FLAGS="--include /output/**"
             echo "Upload target: output"
-          elif [[ "${{ github.event.inputs.UPLOAD_TARGETS }}" == "apk_only" ]]; then
-            INCLUDE_FLAGS="--include '/extracted/**.apk' --exclude '*/**'"
-            echo "Upload target: apk_only (from extracted folder)"
           elif [[ "${{ github.event.inputs.UPLOAD_TARGETS }}" == "both" ]]; then
             INCLUDE_FLAGS="--include /output/** --include /extracted/**"
             echo "Upload target: output and extracted"
+          elif [[ "${{ github.event.inputs.UPLOAD_TARGETS }}" == "apk_only" ]]; then
+            INCLUDE_FLAGS="--include /extracted/**"
+            echo "Upload target: extracted (cleaned to contain only APKs)"
           fi
           
           echo "Preparing to upload to ${RCLONE_DEST}/${FOLDER_NAME}"
           echo "-----------------------------------------------------"
           echo "Calculating total files and size..."
-          rclone ls . $INCLUDE_FLAGS
-          echo "-----------------------------------------------------"
-          echo "Calculating total size..."
           rclone size . $INCLUDE_FLAGS
           echo "-----------------------------------------------------"
 
