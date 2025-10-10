@@ -9,8 +9,9 @@ on:
         default: ''
 
 jobs:
-  dump-firmware:
+  dump:
     runs-on: ubuntu-latest
+    timeout-minutes: 720
     steps:
       - name: Clean 2
         uses: easimon/maximize-build-space@master
@@ -38,10 +39,6 @@ jobs:
           pip install poetry
           sed -i 's/README.md/readme.md/g' pyproject.toml
           poetry install
-          curl https://rclone.org/install.sh | sudo bash
-          mkdir -p ~/.config/rclone
-          echo "${{ secrets.RCLONE_CONF }}" > ~/.config/rclone/rclone.conf
-
          
       - name: Erofs-utils setup
         run: |
@@ -65,8 +62,18 @@ jobs:
           $GITHUB_WORKSPACE/scripts/dump_and_extract.sh "$ROM_FILENAME"
           echo "ota_filename=$ROM_FILENAME" >> $GITHUB_OUTPUT
       
-      - name: Upload to OneDrive
+      - name: Configure rclone
         run: |
-          UPLOAD_PATH="OTA_DUMPS/${{ steps.process_step.outputs.ota_filename }}"
-          rclone copy output "1drive:$UPLOAD_PATH/output" --progress
-          rclone copy extracted "1drive:$UPLOAD_PATH/extracted" --progress
+          curl https://rclone.org/install.sh | sudo bash
+          mkdir -p ~/.config/rclone
+          echo "${{ secrets.RCLONE_CONF }}" > ~/.config/rclone/rclone.conf
+  
+      - name: Upload to OneDrive
+        env:
+            RCLONE_DEST: "1drive:OTA_DUMPS"
+        run: |
+            FOLDER_NAME="${{ steps.process_step.outputs.ota_filename }}"
+            echo "Uploading 'output' directory..."
+            rclone copy output "${RCLONE_DEST}/${FOLDER_NAME}/output" --transfers=8 --checkers=16 --progress
+            echo "Uploading 'extracted' directory..."
+            rclone copy extracted "${RCLONE_DEST}/${FOLDER_NAME}/extracted" --transfers=8 --checkers=16 --progress
