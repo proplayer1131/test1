@@ -99,7 +99,7 @@ jobs:
           else
             FOLDER_NAME="${{ steps.process_step.outputs.original_filename }}"
           fi
-          
+
           INCLUDE_FLAGS=""
           if [[ "${{ github.event.inputs.UPLOAD_TARGETS }}" == "extracted" ]]; then
             INCLUDE_FLAGS="--include /extracted/**"
@@ -114,15 +114,15 @@ jobs:
             INCLUDE_FLAGS="--include /extracted/**"
             echo "Upload target: extracted (cleaned to contain only APKs)"
           fi
-          
+
           echo "Preparing to upload to ${RCLONE_DEST}/${FOLDER_NAME}"
           echo "-----------------------------------------------------"
           echo "Calculating total files and size..."
           rclone size . $INCLUDE_FLAGS
           echo "-----------------------------------------------------"
-
           echo "Starting upload..."
           rclone copy . "${RCLONE_DEST}/${FOLDER_NAME}" \
+            --copy-links \
             $INCLUDE_FLAGS \
             --transfers=8 \
             --checkers=16 \
