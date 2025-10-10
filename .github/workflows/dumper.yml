@@ -11,14 +11,15 @@ on:
         required: false
         default: ''
       UPLOAD_TARGETS:
-        description: 'Select which directories to upload.'
+        description: 'Select which directories/files to upload.'
         required: true
         type: choice
         options:
           - extracted
           - output
           - both
-        default: 'extracted'
+          - apk_only
+        default: 'apk_only'
 
 jobs:
   dump:
@@ -98,6 +99,9 @@ jobs:
           elif [[ "${{ github.event.inputs.UPLOAD_TARGETS }}" == "output" ]]; then
             INCLUDE_FLAGS="--include /output/**"
             echo "Upload target: output"
+          elif [[ "${{ github.event.inputs.UPLOAD_TARGETS }}" == "apk_only" ]]; then
+            INCLUDE_FLAGS="--include '**.apk'"
+            echo "Upload target: apk_only"
           elif [[ "${{ github.event.inputs.UPLOAD_TARGETS }}" == "both" ]]; then
             INCLUDE_FLAGS="--include /output/** --include /extracted/**"
             echo "Upload target: output and extracted"
