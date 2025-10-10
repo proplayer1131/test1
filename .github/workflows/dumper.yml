@@ -26,7 +26,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 720
     steps:
-      - name: Maximize Build Space
+      - name: Clean
         uses: easimon/maximize-build-space@master
         with:
           root-reserve-mb: 512
@@ -64,7 +64,7 @@ jobs:
           make
           sudo make install
 
-      - name: Download and Rename ROM
+      - name: Download ROM
         run: |
           aria2c -x16 -s16 -j5 --file-allocation=none --summary-interval=10 -o rom.zip "${{ github.event.inputs.ROM_URL }}"
 
@@ -76,13 +76,13 @@ jobs:
           ORIGINAL_FILENAME=$(basename "${{ github.event.inputs.ROM_URL }}")
           echo "original_filename=$ORIGINAL_FILENAME" >> $GITHUB_OUTPUT
 
-      - name: Configure rclone from Base64 secret
+      - name: setup rclone
         run: |
           curl https://rclone.org/install.sh | sudo bash
           mkdir -p ~/.config/rclone
           echo "${{ secrets.RCLONE_CONF2}}" | base64 --decode > ~/.config/rclone/rclone.conf
 
-      - name: Clean non-APK files if apk_only is selected
+      - name: Clean
         if: github.event.inputs.UPLOAD_TARGETS == 'apk_only'
         run: |
           echo "Selected apk_only. Cleaning 'extracted' directory..."
@@ -90,7 +90,7 @@ jobs:
           find extracted/ -type d -empty -delete
           echo "Cleaning complete. Only APK files and their parent directories remain."
 
-      - name: Upload Dumps to OneDrive
+      - name: Upload
         env:
           RCLONE_DEST: "1drive:OTA_DUMPS"
         run: |
