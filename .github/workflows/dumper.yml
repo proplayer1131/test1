@@ -43,7 +43,7 @@ jobs:
           echo "${{ secrets.RCLONE_CONF }}" > ~/.config/rclone/rclone.conf
 
          
-      - name: Download and set up erofs-utils
+      - name: Erofs-utils setup
         run: |
           aria2c -x16 -s16 https://git.kernel.org/pub/scm/linux/kernel/git/xiang/erofs-utils.git/snapshot/erofs-utils-1.6.tar.gz
           tar -xzf erofs-utils-1.6.tar.gz
@@ -57,7 +57,7 @@ jobs:
         run: |
           aria2c -x16 -s16 -j5 --file-allocation=none --summary-interval=10 "${{ github.event.inputs.ROM_URL }}"
 
-      - name: Process downloaded ROM
+      - name: Process File
         id: process_step
         run: |
           chmod +x $GITHUB_WORKSPACE/scripts/dump_and_extract.sh
