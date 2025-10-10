@@ -39,6 +39,8 @@ jobs:
           sed -i 's/README.md/readme.md/g' pyproject.toml
           poetry install
           curl https://rclone.org/install.sh | sudo bash
+          mkdir -p ~/.config/rclone
+          echo "${{ secrets.RCLONE_CONF }}" > ~/.config/rclone/rclone.conf
 
          
       - name: Download and set up erofs-utils
@@ -62,18 +64,9 @@ jobs:
           ROM_FILENAME=$(basename "${{ github.event.inputs.ROM_URL }}")
           $GITHUB_WORKSPACE/scripts/dump_and_extract.sh "$ROM_FILENAME"
           echo "ota_filename=$ROM_FILENAME" >> $GITHUB_OUTPUT
-
-      - name: Configure rclone
-        run: |
-          mkdir -p ~/.config/rclone
-          echo "${{ secrets.RCLONE_CONF }}" > ~/.config/rclone/rclone.conf
       
       - name: Upload to OneDrive
         run: |
-          # Tạo một thư mục duy nhất trên OneDrive dựa theo tên file ROM
           UPLOAD_PATH="OTA_DUMPS/${{ steps.process_step.outputs.ota_filename }}"
-          
-          # Tải thư mục output và extracted lên OneDrive
-          # Đảm bảo remote '1drive' trong rclone.conf của bạn là của OneDrive
           rclone copy output "1drive:$UPLOAD_PATH/output" --progress
           rclone copy extracted "1drive:$UPLOAD_PATH/extracted" --progress
