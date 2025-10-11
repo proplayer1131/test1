@@ -6,10 +6,6 @@ on:
       ROM_URL:
         description: 'URL to the OTA zip file'
         required: true
-      CUSTOM_FOLDER_NAME:
-        description: 'Optional: Custom folder name for upload. If empty, uses original filename.'
-        required: false
-        default: ''
       UPLOAD_TARGETS:
         description: 'Select which directories to upload.'
         required: true
@@ -65,27 +61,37 @@ jobs:
           make
           sudo make install
 
-      - name: Download and Rename ROM
+      - name: Download ROM
         run: |
           aria2c -x16 -s16 -j5 --file-allocation=none --summary-interval=10 -o rom.zip "${{ github.event.inputs.ROM_URL }}"
+
+      - name: Extract Info & Rename ROM
+        id: rom_info
+        run: |
+          # Make sure you have created the get_rom_info.sh script in the 'scripts' directory
+          chmod +x $GITHUB_WORKSPACE/scripts/get_rom_info.sh
+          # Run the script and capture its output
+          output=$($GITHUB_WORKSPACE/scripts/get_rom_info.sh rom.zip)
+          
+          # Forward the script's output to the step's output
+          echo "$output" >> $GITHUB_OUTPUT
 
       - name: Process File
         id: process_step
         run: |
           chmod +x $GITHUB_WORKSPACE/scripts/dump_and_extract.sh
-          $GITHUB_WORKSPACE/scripts/dump_and_extract.sh "rom.zip"
-          ORIGINAL_FILENAME=$(basename "${{ github.event.inputs.ROM_URL }}")
-          echo "original_filename=$ORIGINAL_FILENAME" >> $GITHUB_OUTPUT
+          # Use the new filename from the previous step
+          $GITHUB_WORKSPACE/scripts/dump_and_extract.sh "${{ steps.rom_info.outputs.new_filename }}"
+          
+          # Output the new filename for potential future reference
+          echo "processed_filename=${{ steps.rom_info.outputs.new_filename }}" >> $GITHUB_OUTPUT
 
       - name: Set Upload Folder Name
         id: set_folder
         run: |
-          if [[ -n "${{ github.event.inputs.CUSTOM_FOLDER_NAME }}" ]]; then
-            FOLDER_NAME="${{ github.event.inputs.CUSTOM_FOLDER_NAME }}"
-          else
-            FOLDER_NAME="${{ steps.process_step.outputs.original_filename }}"
-          fi
+          FOLDER_NAME="${{ steps.rom_info.outputs.version_name }}"
           echo "UPLOAD_FOLDER_NAME=$FOLDER_NAME" >> $GITHUB_ENV
+          echo "Final Upload Folder Name: $FOLDER_NAME"
 
       - name: Configure rclone from Base64 secret
         run: |
