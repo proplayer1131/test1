@@ -95,14 +95,14 @@ jobs:
           
           if [[ "${{ github.event.inputs.UPLOAD_TARGETS }}" == "extracted" || "${{ github.event.inputs.UPLOAD_TARGETS }}" == "apk_only" ]]; then
             echo "Copying 'extracted' directory..."
-            cp -RL extracted/* upload_source/
+            (cd extracted && cp -RL . ../upload_source/)
           elif [[ "${{ github.event.inputs.UPLOAD_TARGETS }}" == "output" ]]; then
             echo "Copying 'output' directory..."
-            cp -RL output/* upload_source/
+            (cd output && cp -RL . ../upload_source/)
           elif [[ "${{ github.event.inputs.UPLOAD_TARGETS }}" == "both" ]]; then
             echo "Copying 'extracted' and 'output' directories..."
-            cp -RL extracted/* upload_source/
-            cp -RL output/* upload_source/
+            (cd extracted && cp -RL . ../upload_source/)
+            (cd output && cp -RL . ../upload_source/)
           fi
           
           echo "File preparation complete. The 'upload_source' directory is ready."
