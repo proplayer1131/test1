@@ -49,7 +49,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y aria2 uuid-dev liblz4-tool jq rsync
+          sudo apt-get install -y aria2 uuid-dev liblz4-tool jq
           pip install poetry
           sed -i 's/README.md/readme.md/g' pyproject.toml
           poetry install
@@ -87,30 +87,9 @@ jobs:
           find extracted/ -type d -empty -delete
           echo "Cleaning complete."
 
-      - name: Dereference Symlinks for Upload
-        id: prepare_upload
-        run: |
-          echo "Preparing files for upload by resolving all symbolic links..."
-          mkdir -p upload_source
-          
-          # Use rsync with -L to copy content of symlinks
-          if [[ "${{ github.event.inputs.UPLOAD_TARGETS }}" == "extracted" || "${{ github.event.inputs.UPLOAD_TARGETS }}" == "apk_only" ]]; then
-            echo "Syncing 'extracted' directory..."
-            rsync -aL extracted/ upload_source/
-          elif [[ "${{ github.event.inputs.UPLOAD_TARGETS }}" == "output" ]]; then
-            echo "Syncing 'output' directory..."
-            rsync -aL output/ upload_source/
-          elif [[ "${{ github.event.inputs.UPLOAD_TARGETS }}" == "both" ]]; then
-            echo "Syncing 'extracted' and 'output' directories..."
-            rsync -aL extracted/ upload_source/
-            rsync -aL output/ upload_source/
-          fi
-          
-          echo "File preparation complete. The 'upload_source' directory is ready."
-
       - name: Upload to remote
         env:
-          RCLONE_DEST: "${{ secrets.RCLONE_DESTINATION }}"
+          RCLONE_DEST: "1drive:OTA_DUMPS"
         run: |
           if [[ -n "${{ github.event.inputs.CUSTOM_FOLDER_NAME }}" ]]; then
             FOLDER_NAME="${{ github.event.inputs.CUSTOM_FOLDER_NAME }}"
@@ -119,22 +98,37 @@ jobs:
           fi
           
           echo "UPLOAD_FOLDER_NAME=${FOLDER_NAME}" >> $GITHUB_ENV
+
+          INCLUDE_FLAGS=""
+          if [[ "${{ github.event.inputs.UPLOAD_TARGETS }}" == "extracted" || "${{ github.event.inputs.UPLOAD_TARGETS }}" == "apk_only" ]]; then
+            INCLUDE_FLAGS="--include /extracted/**"
+            echo "Upload target: extracted"
+          elif [[ "${{ github.event.inputs.UPLOAD_TARGETS }}" == "output" ]]; then
+            INCLUDE_FLAGS="--include /output/**"
+            echo "Upload target: output"
+          elif [[ "${{ github.event.inputs.UPLOAD_TARGETS }}" == "both" ]]; then
+            INCLUDE_FLAGS="--include /output/** --include /extracted/**"
+            echo "Upload target: output and extracted"
+          fi
           
-          TARGET_PATH="${RCLONE_DEST}/${FOLDER_NAME}"
-          echo "Preparing to upload to ${TARGET_PATH}"
-          
-          rclone copy upload_source/ "${TARGET_PATH}" \
+          echo "Preparing to upload to ${RCLONE_DEST}/${FOLDER_NAME}"
+          echo "-----------------------------------------------------"
+          echo "Calculating total files and size..."
+          rclone size . --copy-links $INCLUDE_FLAGS
+          echo "-----------------------------------------------------"
+          echo "Starting upload..."
+          rclone copy . "${RCLONE_DEST}/${FOLDER_NAME}" \
+            --copy-links \
+            $INCLUDE_FLAGS \
             --transfers=8 \
             --checkers=16 \
             --log-level NOTICE \
             --stats-one-line \
             --stats 30s
-          
-          echo "Upload complete."
       
       - name: Generate and Output Link
         env:
-          RCLONE_DEST: "${{ secrets.RCLONE_DESTINATION }}"
+          RCLONE_DEST: "1drive:OTA_DUMPS"
         run: |
           FULL_REMOTE_PATH="${RCLONE_DEST}/${{ env.UPLOAD_FOLDER_NAME }}"
           
