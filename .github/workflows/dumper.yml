@@ -26,7 +26,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 720
     steps:
-      - name: Clean 1
+      - name: Maximize Build Space
         uses: easimon/maximize-build-space@master
         with:
           root-reserve-mb: 512
@@ -35,7 +35,7 @@ jobs:
           remove-android: "true"
           remove-haskell: "true"
 
-      - name: Checkout repository
+      - name: Checkout dumper repository
         uses: actions/checkout@v4
         with:
           repository: 'proplayer1131/new-dump'
@@ -79,7 +79,7 @@ jobs:
           mkdir -p ~/.config/rclone
           echo "${{ secrets.RCLONE_CONF2 }}" | base64 --decode > ~/.config/rclone/rclone.conf
 
-      - name: Clean 2
+      - name: Clean non-APK files (if selected)
         if: github.event.inputs.UPLOAD_TARGETS == 'apk_only'
         run: |
           echo "Selected apk_only. Cleaning 'extracted' directory..."
@@ -98,30 +98,28 @@ jobs:
           fi
           
           echo "UPLOAD_FOLDER_NAME=${FOLDER_NAME}" >> $GITHUB_ENV
+          
+          TARGET_PATH="${RCLONE_DEST}/${FOLDER_NAME}"
+          echo "Preparing to upload to ${TARGET_PATH}"
+          echo "-----------------------------------------------------"
+          
+          RCLONE_CMD="rclone copy --copy-links --transfers=8 --checkers=16 --log-level NOTICE --stats-one-line --stats 30s"
 
-          INCLUDE_FLAGS=""
           if [[ "${{ github.event.inputs.UPLOAD_TARGETS }}" == "extracted" || "${{ github.event.inputs.UPLOAD_TARGETS }}" == "apk_only" ]]; then
-            INCLUDE_FLAGS="--include /extracted/**"
+            echo "Uploading 'extracted' directory..."
+            $RCLONE_CMD extracted/ "${TARGET_PATH}"
           elif [[ "${{ github.event.inputs.UPLOAD_TARGETS }}" == "output" ]]; then
-            INCLUDE_FLAGS="--include /output/**"
+            echo "Uploading 'output' directory..."
+            $RCLONE_CMD output/ "${TARGET_PATH}"
           elif [[ "${{ github.event.inputs.UPLOAD_TARGETS }}" == "both" ]]; then
-            INCLUDE_FLAGS="--include /output/** --include /extracted/**"
+            echo "Uploading 'extracted' directory..."
+            $RCLONE_CMD extracted/ "${TARGET_PATH}"
+            echo "Uploading 'output' directory..."
+            $RCLONE_CMD output/ "${TARGET_PATH}"
           fi
-
-          echo "Preparing to upload to ${RCLONE_DEST}/${FOLDER_NAME}"
+          
           echo "-----------------------------------------------------"
-          echo "Calculating total files and size..."
-          rclone size . --copy-links $INCLUDE_FLAGS
-          echo "-----------------------------------------------------"
-          echo "Starting upload..."
-          rclone copy . "${RCLONE_DEST}/${FOLDER_NAME}" \
-            --copy-links \
-            $INCLUDE_FLAGS \
-            --transfers=8 \
-            --checkers=16 \
-            --log-level NOTICE \
-            --stats-one-line \
-            --stats 30s
+          echo "Upload complete."
       
       - name: Generate and Output Link
         env:
@@ -138,3 +136,4 @@ jobs:
           echo "BOT_OUTPUT::Tên thư mục=${{ env.UPLOAD_FOLDER_NAME }}"
           echo "BOT_OUTPUT::Kích thước=${UPLOAD_SIZE}"
           echo "BOT_OUTPUT::Link Tải=${UPLOAD_LINK}"
+
