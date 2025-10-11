@@ -123,9 +123,10 @@ jobs:
           echo "Preparing to upload to ${RCLONE_DEST}/${UPLOAD_FOLDER_NAME}"
           rclone copy . "${RCLONE_DEST}/${UPLOAD_FOLDER_NAME}" \
             --copy-links \
+            --ignore-errors \
             $INCLUDE_FLAGS \
-            --transfers=8 \
-            --checkers=16 \
+            --transfers=16 \
+            --checkers=32 \
             --log-level NOTICE \
             --stats-one-line \
             --stats 30s
