@@ -87,6 +87,26 @@ jobs:
           find extracted/ -type d -empty -delete
           echo "Cleaning complete."
 
+      - name: Dereference Symlinks for Upload
+        id: prepare_upload
+        run: |
+          echo "Preparing files for upload by resolving all symbolic links..."
+          mkdir -p upload_source
+          
+          if [[ "${{ github.event.inputs.UPLOAD_TARGETS }}" == "extracted" || "${{ github.event.inputs.UPLOAD_TARGETS }}" == "apk_only" ]]; then
+            echo "Copying 'extracted' directory..."
+            cp -RL extracted/* upload_source/
+          elif [[ "${{ github.event.inputs.UPLOAD_TARGETS }}" == "output" ]]; then
+            echo "Copying 'output' directory..."
+            cp -RL output/* upload_source/
+          elif [[ "${{ github.event.inputs.UPLOAD_TARGETS }}" == "both" ]]; then
+            echo "Copying 'extracted' and 'output' directories..."
+            cp -RL extracted/* upload_source/
+            cp -RL output/* upload_source/
+          fi
+          
+          echo "File preparation complete. The 'upload_source' directory is ready."
+
       - name: Upload to remote
         env:
           RCLONE_DEST: "${{ secrets.RCLONE_DESTINATION }}"
@@ -101,24 +121,14 @@ jobs:
           
           TARGET_PATH="${RCLONE_DEST}/${FOLDER_NAME}"
           echo "Preparing to upload to ${TARGET_PATH}"
-          echo "-----------------------------------------------------"
           
-          RCLONE_CMD="rclone copy --copy-links --transfers=8 --checkers=16 --log-level NOTICE --stats-one-line --stats 30s"
-
-          if [[ "${{ github.event.inputs.UPLOAD_TARGETS }}" == "extracted" || "${{ github.event.inputs.UPLOAD_TARGETS }}" == "apk_only" ]]; then
-            echo "Uploading 'extracted' directory..."
-            $RCLONE_CMD extracted/ "${TARGET_PATH}"
-          elif [[ "${{ github.event.inputs.UPLOAD_TARGETS }}" == "output" ]]; then
-            echo "Uploading 'output' directory..."
-            $RCLONE_CMD output/ "${TARGET_PATH}"
-          elif [[ "${{ github.event.inputs.UPLOAD_TARGETS }}" == "both" ]]; then
-            echo "Uploading 'extracted' directory..."
-            $RCLONE_CMD extracted/ "${TARGET_PATH}"
-            echo "Uploading 'output' directory..."
-            $RCLONE_CMD output/ "${TARGET_PATH}"
-          fi
+          rclone copy upload_source/ "${TARGET_PATH}" \
+            --transfers=8 \
+            --checkers=16 \
+            --log-level NOTICE \
+            --stats-one-line \
+            --stats 30s
           
-          echo "-----------------------------------------------------"
           echo "Upload complete."
       
       - name: Generate and Output Link
@@ -129,10 +139,11 @@ jobs:
           
           echo "Getting size and link for ${FULL_REMOTE_PATH}"
           
-          UPLOAD_SIZE=$(rclone size --json --copy-links "${FULL_REMOTE_PATH}" | jq -r '.bytes' | awk '{ sum=$1 ; hum[1024**3]="GB";hum[1024**2]="MB";hum[1024]="KB"; for (x=1024**3; x>=1024; x/=1024){ if (sum>=x) { printf "%.2f %s\n",sum/x,hum[x];break } }}')
+          UPLOAD_SIZE=$(rclone size --json "${FULL_REMOTE_PATH}" | jq -r '.bytes' | awk '{ sum=$1 ; hum[1024**3]="GB";hum[1024**2]="MB";hum[1024]="KB"; for (x=1024**3; x>=1024; x/=1024){ if (sum>=x) { printf "%.2f %s\n",sum/x,hum[x];break } }}')
           UPLOAD_LINK=$(rclone link "${FULL_REMOTE_PATH}")
 
           echo "::add-mask::${UPLOAD_LINK}"
+
           echo "BOT_OUTPUT::Tên thư mục=${{ env.UPLOAD_FOLDER_NAME }}"
           echo "BOT_OUTPUT::Kích thước=${UPLOAD_SIZE}"
           echo "BOT_OUTPUT::Link Tải=${UPLOAD_LINK}"
