@@ -97,6 +97,12 @@ jobs:
           echo "UPLOAD_FOLDER_NAME=$FOLDER_NAME" >> $GITHUB_ENV
           echo "✅ Final Upload Folder Name: $FOLDER_NAME"
 
+      - name: Configure rclone
+        run: |
+          curl https://rclone.org/install.sh | sudo bash
+          mkdir -p ~/.config/rclone
+          echo "${{ secrets.RCLONE_CONF2 }}" | base64 --decode > ~/.config/rclone/rclone.conf
+      
       - name: Upload Dumps and Generate Link
         env:
           RCLONE_DEST: "1drive:OTA_DUMPS"
