@@ -112,15 +112,14 @@ jobs:
           echo "Preparing to upload to ${RCLONE_DEST}/${FOLDER_NAME}"
           echo "-----------------------------------------------------"
           echo "Calculating total files and size..."
-          rclone size . $INCLUDE_FLAGS --copy-links --log-level ERROR
+          rclone size . $INCLUDE_FLAGS
           echo "-----------------------------------------------------"
           echo "Starting upload..."
           rclone copy . "${RCLONE_DEST}/${FOLDER_NAME}" \
             $INCLUDE_FLAGS \
-            --copy-links \
             --transfers=8 \
             --checkers=16 \
-            --log-level ERROR \
+            --log-level NOTICE \
             --stats-one-line \
             --stats 30s
     
@@ -129,6 +128,7 @@ jobs:
           RCLONE_DEST: "1drive:OTA_DUMPS"
         run: |
           FULL_REMOTE_PATH="${RCLONE_DEST}/${UPLOAD_FOLDER_NAME}"
+          
           echo "Getting size and link for ${FULL_REMOTE_PATH}"
           
           UPLOAD_SIZE=$(rclone size --json --copy-links "${FULL_REMOTE_PATH}" | jq -r '.bytes' | awk '{ sum=$1 ; hum[1024**3]="GB";hum[1024**2]="MB";hum[1024]="KB"; for (x=1024**3; x>=1024; x/=1024){ if (sum>=x) { printf "%.2f %s\n",sum/x,hum[x];break } }}')
@@ -137,4 +137,4 @@ jobs:
           echo "BOT_OUTPUT::Tên thư mục=${UPLOAD_FOLDER_NAME}"
           echo "BOT_OUTPUT::Kích thước=${UPLOAD_SIZE}"
           echo "BOT_OUTPUT::Link Tải=${UPLOAD_LINK}"
-
+          
