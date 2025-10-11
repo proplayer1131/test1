@@ -26,7 +26,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 720
     steps:
-      - name: Maximize Build Space
+      - name: Clean
         uses: easimon/maximize-build-space@master
         with:
           root-reserve-mb: 512
@@ -35,7 +35,7 @@ jobs:
           remove-android: "true"
           remove-haskell: "true"
 
-      - name: Checkout dumper repository
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
           repository: 'proplayer1131/new-dump'
@@ -49,22 +49,22 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y aria2 uuid-dev liblz4-tool jq
+          sudo apt-get install -y aria2 uuid-dev liblz4-tool
           pip install poetry
           sed -i 's/README.md/readme.md/g' pyproject.toml
           poetry install
-
-      - name: Set up erofs-utils
+      - name: Erofs-utils setup
         run: |
           aria2c -x16 -s16 https://git.kernel.org/pub/scm/linux/kernel/git/xiang/erofs-utils.git/snapshot/erofs-utils-1.6.tar.gz
           tar -xzf erofs-utils-1.6.tar.gz
           cd erofs-utils-1.6/
-          ./autogen.sh && ./configure && make && sudo make install
-
+          ./autogen.sh
+          ./configure
+          make
+          sudo make install
       - name: Download ROM
         run: |
           aria2c -x16 -s16 -j5 --file-allocation=none --summary-interval=10 -o rom.zip "${{ github.event.inputs.ROM_URL }}"
-
       - name: Process File
         id: process_step
         run: |
@@ -72,22 +72,19 @@ jobs:
           $GITHUB_WORKSPACE/scripts/dump_and_extract.sh "rom.zip"
           ORIGINAL_FILENAME=$(basename "${{ github.event.inputs.ROM_URL }}")
           echo "original_filename=$ORIGINAL_FILENAME" >> $GITHUB_OUTPUT
-
-      - name: Set up rclone
+      - name: setup rclone
         run: |
           curl https://rclone.org/install.sh | sudo bash
           mkdir -p ~/.config/rclone
-          echo "${{ secrets.RCLONE_CONF2 }}" | base64 --decode > ~/.config/rclone/rclone.conf
-
-      - name: Clean non-APK files (if selected)
+          echo "${{ secrets.RCLONE_CONF2}}" | base64 --decode > ~/.config/rclone/rclone.conf
+      - name: Clean
         if: github.event.inputs.UPLOAD_TARGETS == 'apk_only'
         run: |
           echo "Selected apk_only. Cleaning 'extracted' directory..."
           find extracted/ -type f ! -name "*.apk" -delete
           find extracted/ -type d -empty -delete
-          echo "Cleaning complete."
-
-      - name: Upload to remote
+          echo "Cleaning complete. Only APK files and their parent directories remain."
+      - name: Upload
         env:
           RCLONE_DEST: "1drive:OTA_DUMPS"
         run: |
@@ -97,10 +94,8 @@ jobs:
             FOLDER_NAME="${{ steps.process_step.outputs.original_filename }}"
           fi
           
-          echo "UPLOAD_FOLDER_NAME=${FOLDER_NAME}" >> $GITHUB_ENV
-
           INCLUDE_FLAGS=""
-          if [[ "${{ github.event.inputs.UPLOAD_TARGETS }}" == "extracted" || "${{ github.event.inputs.UPLOAD_TARGETS }}" == "apk_only" ]]; then
+          if [[ "${{ github.event.inputs.UPLOAD_TARGETS }}" == "extracted" ]]; then
             INCLUDE_FLAGS="--include /extracted/**"
             echo "Upload target: extracted"
           elif [[ "${{ github.event.inputs.UPLOAD_TARGETS }}" == "output" ]]; then
@@ -109,39 +104,21 @@ jobs:
           elif [[ "${{ github.event.inputs.UPLOAD_TARGETS }}" == "both" ]]; then
             INCLUDE_FLAGS="--include /output/** --include /extracted/**"
             echo "Upload target: output and extracted"
+          elif [[ "${{ github.event.inputs.UPLOAD_TARGETS }}" == "apk_only" ]]; then
+            INCLUDE_FLAGS="--include /extracted/**"
+            echo "Upload target: extracted (cleaned to contain only APKs)"
           fi
           
           echo "Preparing to upload to ${RCLONE_DEST}/${FOLDER_NAME}"
           echo "-----------------------------------------------------"
           echo "Calculating total files and size..."
-          rclone size . --copy-links $INCLUDE_FLAGS
+          rclone size . $INCLUDE_FLAGS
           echo "-----------------------------------------------------"
           echo "Starting upload..."
           rclone copy . "${RCLONE_DEST}/${FOLDER_NAME}" \
-            --copy-links \
             $INCLUDE_FLAGS \
             --transfers=8 \
             --checkers=16 \
             --log-level NOTICE \
             --stats-one-line \
             --stats 30s
-      
-      - name: Generate and Output Link
-        env:
-          RCLONE_DEST: "1drive:OTA_DUMPS"
-        run: |
-          FULL_REMOTE_PATH="${RCLONE_DEST}/${{ env.UPLOAD_FOLDER_NAME }}"
-          
-          echo "Getting size and link for ${FULL_REMOTE_PATH}"
-          
-          UPLOAD_SIZE=$(rclone size --json "${FULL_REMOTE_PATH}" | jq -r '.bytes' | awk '{ sum=$1 ; hum[1024**3]="GB";hum[1024**2]="MB";hum[1024]="KB"; for (x=1024**3; x>=1024; x/=1024){ if (sum>=x) { printf "%.2f %s\n",sum/x,hum[x];break } }}')
-          UPLOAD_LINK=$(rclone link "${FULL_REMOTE_PATH}")
-
-          # Che link tải trong log
-          echo "::add-mask::${UPLOAD_LINK}"
-
-          # Output cho bot đọc
-          echo "BOT_OUTPUT::Tên thư mục=${{ env.UPLOAD_FOLDER_NAME }}"
-          echo "BOT_OUTPUT::Kích thước=${UPLOAD_SIZE}"
-          echo "BOT_OUTPUT::Link Tải=${UPLOAD_LINK}"
-
