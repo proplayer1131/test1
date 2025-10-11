@@ -133,11 +133,27 @@ jobs:
         run: |
           FULL_REMOTE_PATH="${RCLONE_DEST}/${UPLOAD_FOLDER_NAME}"
           
-          echo "Getting size and link for ${FULL_REMOTE_PATH}"
+          echo "Verifying upload at: ${FULL_REMOTE_PATH}"
           
-          UPLOAD_SIZE=$(rclone size --json --copy-links "${FULL_REMOTE_PATH}" | jq -r '.bytes' | awk '{ sum=$1 ; hum[1024**3]="GB";hum[1024**2]="MB";hum[1024]="KB"; for (x=1024**3; x>=1024; x/=1024){ if (sum>=x) { printf "%.2f %s\n",sum/x,hum[x];break } }}')
-          UPLOAD_LINK=$(rclone link "${FULL_REMOTE_PATH}")
+          FILE_COUNT=$(rclone lsf --max-depth 2 "${FULL_REMOTE_PATH}" | wc -l)
+          
+          if [ "$FILE_COUNT" -gt 0 ]; then
+            echo "✅ Upload confirmed. Found $FILE_COUNT items. Getting size and link..."
+            
+            UPLOAD_SIZE=$(rclone size --json --copy-links "${FULL_REMOTE_PATH}" | jq -r '.bytes' | awk '{ sum=$1 ; hum[1024**3]="GB";hum[1024**2]="MB";hum[1024]="KB"; for (x=1024**3; x>=1024; x/=1024){ if (sum>=x) { printf "%.2f %s\n",sum/x,hum[x];break } }}')
+            UPLOAD_LINK=$(rclone link "${FULL_REMOTE_PATH}")
+            
+            if [ -z "${UPLOAD_LINK}" ]; then
+              echo "⚠️ Warning: Could not generate a public link. Check rclone permissions."
+              UPLOAD_LINK="Không thể tạo link."
+            fi
+          else
+            echo "❌ Error: Upload verification failed. The remote directory is empty or does not exist."
+            UPLOAD_SIZE="N/A"
+            UPLOAD_LINK="Tải lên thất bại."
+          fi
+          
           echo "::add-mask::${UPLOAD_LINK}"
           echo "BOT_OUTPUT::Tên thư mục=${UPLOAD_FOLDER_NAME}"
-          echo "BOT_OUTPUT::Kích thước=${UPLOAD_SIZE}"
+          echo "BOT_OUTPUT::Kích thước=${UPLOAD_SIZE:-N/A}"
           echo "BOT_OUTPUT::Link Tải=${UPLOAD_LINK}"
