@@ -65,58 +65,39 @@ jobs:
       - name: Download ROM
         run: |
           aria2c -x16 -s16 -j5 --file-allocation=none --summary-interval=10 -o rom.zip "${{ github.event.inputs.ROM_URL }}"
-      
-      # BƯỚC MỚI: DÙNG ĐỂ GỠ LỖI, IN NỘI DUNG METADATA RA MÀN HÌNH
-      - name: Investigate ROM Properties (for debugging)
-        run: |
-          echo "--- Investigating payload_properties.txt ---"
-          if unzip -l rom.zip "payload_properties.txt" > /dev/null 2>&1; then
-            unzip -p rom.zip payload_properties.txt
-          else
-            echo "::warning::Could not find payload_properties.txt for investigation."
-          fi
-          echo "------------------------------------------"
 
-      # BƯỚC ĐÃ SỬA LỖI
       - name: Extract Info & Rename ROM
         id: rom_info
         run: |
           chmod +x $GITHUB_WORKSPACE/scripts/get_rom_info.sh
-          # ĐÃ BỎ `| tee $GITHUB_OUTPUT` VÌ SCRIPT TỰ XỬ LÝ
           $GITHUB_WORKSPACE/scripts/get_rom_info.sh rom.zip
 
       - name: Process File
         id: process_step
         run: |
           chmod +x $GITHUB_WORKSPACE/scripts/dump_and_extract.sh
-          # Thêm kiểm tra để quy trình dừng lại nếu không tạo được tên file
           if [ -z "${{ steps.rom_info.outputs.new_filename }}" ]; then
             echo "::error::new_filename không được tạo. Dừng quy trình."
             exit 1
           fi
           $GITHUB_WORKSPACE/scripts/dump_and_extract.sh "${{ steps.rom_info.outputs.new_filename }}"
-          echo "processed_filename=${{ steps.rom_info.outputs.new_filename }}" >> $GITHUB_OUTPUT
 
       - name: Set Upload Folder Name
         id: set_folder
         run: |
-          # Thêm kiểm tra để quy trình dừng lại nếu không tạo được tên file
-          if [ -z "${{ steps.rom_info.outputs.new_filename }}" ]; then
-            echo "::error::new_filename không được tạo. Dừng quy trình."
+          FULL_FILENAME="${{ steps.rom_info.outputs.new_filename }}"
+          
+          if [ -z "$FULL_FILENAME" ]; then
+            echo "::error::Tên file đầy đủ bị trống. Dừng lại."
             exit 1
           fi
-          FULL_FILENAME="${{ steps.rom_info.outputs.new_filename }}"
+
           FOLDER_NAME="${FULL_FILENAME%.zip}"
+
           echo "UPLOAD_FOLDER_NAME=$FOLDER_NAME" >> $GITHUB_ENV
-          echo "Final Upload Folder Name: $FOLDER_NAME"
+          echo "✅ Final Upload Folder Name: $FOLDER_NAME"
 
-      - name: Configure rclone from Base64 secret
-        run: |
-          curl https://rclone.org/install.sh | sudo bash
-          mkdir -p ~/.config/rclone
-          echo "${{ secrets.RCLONE_CONF2}}" | base64 --decode > ~/.config/rclone/rclone.conf
-
-      - name: Upload Dumps to OneDrive
+      - name: Upload Dumps and Generate Link
         env:
           RCLONE_DEST: "1drive:OTA_DUMPS"
         run: |
@@ -125,7 +106,6 @@ jobs:
             echo "Upload target: apk_only. Deleting non-apk files..."
             find extracted output -type f ! -name "*.apk" -delete
             INCLUDE_FLAGS="--include /output/** --include /extracted/**"
-            echo "Non-apk files deleted."
           elif [[ "${{ github.event.inputs.UPLOAD_TARGETS }}" == "extracted" ]]; then
             INCLUDE_FLAGS="--include /extracted/**"
           elif [[ "${{ github.event.inputs.UPLOAD_TARGETS }}" == "output" ]]; then
@@ -135,7 +115,6 @@ jobs:
           fi
           
           echo "Preparing to upload to ${RCLONE_DEST}/${UPLOAD_FOLDER_NAME}"
-          echo "-----------------------------------------------------"
           rclone copy . "${RCLONE_DEST}/${UPLOAD_FOLDER_NAME}" \
             $INCLUDE_FLAGS \
             --transfers=8 \
@@ -143,21 +122,16 @@ jobs:
             --log-level NOTICE \
             --stats-one-line \
             --stats 30s
-
-      - name: Generate and Output Link
-        env:
-          RCLONE_DEST: "1drive:OTA_DUMPS"
-        run: |
+          
           FULL_REMOTE_PATH="${RCLONE_DEST}/${UPLOAD_FOLDER_NAME}"
           echo "Verifying upload at: ${FULL_REMOTE_PATH}"
           FILE_COUNT=$(rclone lsf --max-depth 2 "${FULL_REMOTE_PATH}" | wc -l)
+          
           if [ "$FILE_COUNT" -gt 0 ]; then
-            echo "✅ Upload confirmed. Found $FILE_COUNT items."
+            echo "✅ Upload confirmed."
             UPLOAD_SIZE=$(rclone size --json --copy-links "${FULL_REMOTE_PATH}" | jq -r '.bytes' | awk '{ sum=$1 ; hum[1024**3]="GB";hum[1024**2]="MB";hum[1024]="KB"; for (x=1024**3; x>=1024; x/=1024){ if (sum>=x) { printf "%.2f %s\n",sum/x,hum[x];break } }}')
             UPLOAD_LINK=$(rclone link "${FULL_REMOTE_PATH}")
-            if [ -z "${UPLOAD_LINK}" ]; then
-              UPLOAD_LINK="Không thể tạo link."
-            fi
+            if [ -z "${UPLOAD_LINK}" ]; then UPLOAD_LINK="Không thể tạo link."; fi
           else
             echo "❌ Error: Upload verification failed."
             UPLOAD_SIZE="N/A"
