@@ -70,7 +70,6 @@ jobs:
         id: rom_info
         run: |
           chmod +x $GITHUB_WORKSPACE/scripts/get_rom_info.sh
-          # <--- THAY ĐỔI: Dùng `tee` để vừa in log ra màn hình, vừa ghi vào GITHUB_OUTPUT
           $GITHUB_WORKSPACE/scripts/get_rom_info.sh rom.zip | tee $GITHUB_OUTPUT
 
       - name: Process File
@@ -83,7 +82,11 @@ jobs:
       - name: Set Upload Folder Name
         id: set_folder
         run: |
-          FOLDER_NAME="${{ steps.rom_info.outputs.new_filename%.zip }}"
+          # 1. Lấy tên file đầy đủ từ bước trước vào một biến shell
+          FULL_FILENAME="${{ steps.rom_info.outputs.new_filename }}"
+          # 2. Bây giờ dùng cú pháp shell để cắt đuôi .zip
+          FOLDER_NAME="${FULL_FILENAME%.zip}"
+          # 3. Gán kết quả vào biến môi trường
           echo "UPLOAD_FOLDER_NAME=$FOLDER_NAME" >> $GITHUB_ENV
           echo "Final Upload Folder Name: $FOLDER_NAME"
 
