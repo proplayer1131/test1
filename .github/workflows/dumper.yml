@@ -1,5 +1,4 @@
 name: OTA Firmware Dumper
-
 on:
   workflow_dispatch:
     inputs:
@@ -16,8 +15,10 @@ on:
           - output
           - both
         default: 'apk_only'
+
 env:
   TZ: Asia/Ho_Chi_Minh
+
 jobs:
   dump:
     runs-on: ubuntu-latest
@@ -68,28 +69,21 @@ jobs:
       - name: Extract Info & Rename ROM
         id: rom_info
         run: |
-          # Make sure you have created the get_rom_info.sh script in the 'scripts' directory
           chmod +x $GITHUB_WORKSPACE/scripts/get_rom_info.sh
-          # Run the script and capture its output
-          output=$($GITHUB_WORKSPACE/scripts/get_rom_info.sh rom.zip)
-          
-          # Forward the script's output to the step's output
-          echo "$output" >> $GITHUB_OUTPUT
+          # <--- THAY ĐỔI: Dùng `tee` để vừa in log ra màn hình, vừa ghi vào GITHUB_OUTPUT
+          $GITHUB_WORKSPACE/scripts/get_rom_info.sh rom.zip | tee $GITHUB_OUTPUT
 
       - name: Process File
         id: process_step
         run: |
           chmod +x $GITHUB_WORKSPACE/scripts/dump_and_extract.sh
-          # Use the new filename from the previous step
           $GITHUB_WORKSPACE/scripts/dump_and_extract.sh "${{ steps.rom_info.outputs.new_filename }}"
-          
-          # Output the new filename for potential future reference
           echo "processed_filename=${{ steps.rom_info.outputs.new_filename }}" >> $GITHUB_OUTPUT
 
       - name: Set Upload Folder Name
         id: set_folder
         run: |
-          FOLDER_NAME="${{ steps.rom_info.outputs.version_name }}"
+          FOLDER_NAME="${{ steps.rom_info.outputs.new_filename%.zip }}"
           echo "UPLOAD_FOLDER_NAME=$FOLDER_NAME" >> $GITHUB_ENV
           echo "Final Upload Folder Name: $FOLDER_NAME"
 
