@@ -87,9 +87,9 @@ jobs:
           find extracted/ -type d -empty -delete
           echo "Cleaning complete."
 
-      - name: Upload 
+      - name: Upload to remote
         env:
-          RCLONE_DEST: "${{ secrets.RCLONE_DESTINATION }}" 
+          RCLONE_DEST: "${{ secrets.RCLONE_DESTINATION }}"
         run: |
           if [[ -n "${{ github.event.inputs.CUSTOM_FOLDER_NAME }}" ]]; then
             FOLDER_NAME="${{ github.event.inputs.CUSTOM_FOLDER_NAME }}"
@@ -97,7 +97,6 @@ jobs:
             FOLDER_NAME="${{ steps.process_step.outputs.original_filename }}"
           fi
           
-  
           echo "UPLOAD_FOLDER_NAME=${FOLDER_NAME}" >> $GITHUB_ENV
 
           INCLUDE_FLAGS=""
@@ -126,17 +125,16 @@ jobs:
       
       - name: Generate and Output Link
         env:
-          RCLONE_DEST: "${{ secrets.RCLONE_DESTINATION }}" 
+          RCLONE_DEST: "${{ secrets.RCLONE_DESTINATION }}"
         run: |
           FULL_REMOTE_PATH="${RCLONE_DEST}/${{ env.UPLOAD_FOLDER_NAME }}"
           
           echo "Getting size and link for ${FULL_REMOTE_PATH}"
           
-          UPLOAD_SIZE=$(rclone size --json "${FULL_REMOTE_PATH}" | jq -r '.bytes' | awk '{ sum=$1 ; hum[1024**3]="GB";hum[1024**2]="MB";hum[1024]="KB"; for (x=1024**3; x>=1024; x/=1024){ if (sum>=x) { printf "%.2f %s\n",sum/x,hum[x];break } }}')
+          UPLOAD_SIZE=$(rclone size --json --copy-links "${FULL_REMOTE_PATH}" | jq -r '.bytes' | awk '{ sum=$1 ; hum[1024**3]="GB";hum[1024**2]="MB";hum[1024]="KB"; for (x=1024**3; x>=1024; x/=1024){ if (sum>=x) { printf "%.2f %s\n",sum/x,hum[x];break } }}')
           UPLOAD_LINK=$(rclone link "${FULL_REMOTE_PATH}")
 
           echo "::add-mask::${UPLOAD_LINK}"
           echo "BOT_OUTPUT::Tên thư mục=${{ env.UPLOAD_FOLDER_NAME }}"
           echo "BOT_OUTPUT::Kích thước=${UPLOAD_SIZE}"
           echo "BOT_OUTPUT::Link Tải=${UPLOAD_LINK}"
-
