@@ -20,7 +20,8 @@ on:
           - output
           - both
         default: 'apk_only'
-
+env:
+  TZ: Asia/Ho_Chi_Minh
 jobs:
   dump:
     runs-on: ubuntu-latest

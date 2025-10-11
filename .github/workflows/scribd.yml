@@ -6,7 +6,8 @@ on:
       book_url:
         description: 'Scribd, Slideshare, or Everand URL'
         required: true
-
+env:
+  TZ: Asia/Ho_Chi_Minh
 jobs:
   download:
     runs-on: ubuntu-latest
