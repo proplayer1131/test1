@@ -36,7 +36,7 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
         with:
-          repository: 'proplayer1131/new-dump'
+          repository: 'proplayer1131/oplus-stuff'
           token: ${{ secrets.ACTION_TOKEN }}
 
       - name: Install System & Build Dependencies
