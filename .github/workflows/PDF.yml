@@ -7,12 +7,11 @@ on:
         description: 'Public URL (Google Drive or OneDrive/SharePoint)'
         required: true
         type: string
-      
       output_filename:
         description: 'Output Name (Optional - Default is MergedDocument.pdf)'
-        required: false 
+        required: false
         type: string
-        default: 'MergedDocument.pdf' 
+        default: 'MergedDocument.pdf'
 
 jobs:
   build-and-merge:
@@ -32,6 +31,7 @@ jobs:
       - name: Install Python PDF Library
         run: pip install pypdf
 
+      # --- BƯỚC CHECKOUT ĐÚNG THEO YÊU CẦU CỦA BẠN ---
       - name: Checkout Repository Code
         uses: actions/checkout@v4
         with:
@@ -48,6 +48,7 @@ jobs:
           chmod 600 ~/.config/rclone/rclone.conf
           echo "Rclone configured successfully."
 
+      # --- ĐÃ SỬA LỖI CÚ PHÁP RCLONE ---
       - name: Download PDF Files from Public URL (Auto-Detect)
         run: |
           mkdir -p ./input_pdfs
@@ -56,11 +57,13 @@ jobs:
 
           if [[ "$URL" == *"drive.google.com"* ]]; then
             echo "Google Drive link detected."
-            rclone copy "drive(url='$URL',type=drive):" ./input_pdfs --include "*.pdf" --progress --drive-acknowledge-abuse
+            # Sửa cú pháp: :drive,url='...'
+            rclone copy ":drive,url='$URL',type=drive:" ./input_pdfs --include "*.pdf" --progress --drive-acknowledge-abuse
           
           elif [[ "$URL" == *"sharepoint.com"* || "$URL" == *"1drv.ms"* ]]; then
             echo "OneDrive/SharePoint link detected."
-            rclone copy "onedrive(link='$URL',type=onedrive):" ./input_pdfs --include "*.pdf" --progress
+            # Sửa cú pháp: :onedrive,link='...'
+            rclone copy ":onedrive,link='$URL',type=onedrive:" ./input_pdfs --include "*.pdf" --progress
           
           else
             echo "ERROR: Unknown link type."
@@ -72,7 +75,6 @@ jobs:
 
       - name: Set Output Filename
         run: |
-          # Nó sẽ lấy tên bạn nhập, hoặc lấy 'MergedDocument.pdf' nếu bạn để trống
           NAME="${{ github.event.inputs.output_filename }}"
           if [[ "$NAME" != *.pdf ]]; then
             NAME="${NAME}.pdf"
@@ -82,6 +84,7 @@ jobs:
 
       - name: Run Python Script to Merge PDFs
         run: |
+          # Giả sử file merge_pdfs.py nằm ở thư mục gốc của repo PDF-MERGED
           python merge_pdfs.py ./input_pdfs "${{ env.OUTPUT_NAME }}"
 
       - name: Upload Merged PDF to Cloud Drive (Auto-Rename)
