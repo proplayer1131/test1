@@ -31,7 +31,7 @@ jobs:
         with:
           repository: 'proplayer1131/PDF-MERGED'
           token: ${{ secrets.ACTION_TOKEN }}
-
+      
       - name: Configure Rclone
         env:
           RCLONE_CONFIG_BASE64: ${{ secrets.RCLONE_CONFIG_BASE64 }}
@@ -65,3 +65,39 @@ jobs:
           echo "Uploading file ${{ env.OUTPUT_NAME }} to 1drive:Merged_Book"
           rclone copy "${{ env.OUTPUT_NAME }}" "1drive:Merged_Book" --progress
           echo "Upload complete."
+
+      # --- ĐÃ CẬP NHẬT BƯỚC NÀY ---
+      - name: Generate and Mask Public Link
+        id: get_link
+        run: |
+          echo "Attempting to create public link..."
+          # Lấy link từ rclone
+          LINK=$(rclone link "1drive:Merged_Book/${{ env.OUTPUT_NAME }}" || true)
+          
+          # Kiểm tra xem có link không
+          if [ -n "$LINK" ]; then
+            echo "Link generated. Masking from logs..."
+            # --- LỆNH CHE LOG QUAN TRỌNG ---
+            # Yêu cầu GitHub Actions che chuỗi này ở tất cả log
+            echo "::add-mask::$LINK"
+            # Lưu link vào biến môi trường
+            echo "DOWNLOAD_LINK=$LINK" >> $GITHUB_ENV
+          else
+            echo "Could not generate link. Proceeding without it."
+            echo "DOWNLOAD_LINK=Không thể tạo link tự động." >> $GITHUB_ENV
+          fi
+
+      - name: Send notification to Telegram
+        uses: appleboy/telegram-action@master
+        with:
+          to: ${{ secrets.TELEGRAM_CHAT_ID }}
+          token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          format: markdown 
+          message: |
+            ✅ **GỘP FILE THÀNH CÔNG!**
+
+            **Tên sách:** `${{ env.OUTPUT_NAME }}`
+            **Nguồn:** `${{ github.event.inputs.rclone_remote_path }}`
+            **Đích:** `1drive:Merged_Book`
+
+            [Nhấn để tải về 🚀](${{ env.DOWNLOAD_LINK }})
