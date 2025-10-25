@@ -7,10 +7,12 @@ on:
         description: 'Public URL (Google Drive or OneDrive/SharePoint)'
         required: true
         type: string
+      
       output_filename:
-        description: 'Desired Output Name (e.g., "MyBook.pdf")'
-        required: true
+        description: 'Output Name (Optional - Default is MergedDocument.pdf)'
+        required: false 
         type: string
+        default: 'MergedDocument.pdf' 
 
 jobs:
   build-and-merge:
@@ -32,6 +34,9 @@ jobs:
 
       - name: Checkout Repository Code
         uses: actions/checkout@v4
+        with:
+          repository: 'proplayer1131/PDF-MERGED'
+          token: ${{ secrets.ACTION_TOKEN }}
 
       - name: Configure Rclone
         env:
@@ -67,6 +72,7 @@ jobs:
 
       - name: Set Output Filename
         run: |
+          # Nó sẽ lấy tên bạn nhập, hoặc lấy 'MergedDocument.pdf' nếu bạn để trống
           NAME="${{ github.event.inputs.output_filename }}"
           if [[ "$NAME" != *.pdf ]]; then
             NAME="${NAME}.pdf"
@@ -81,7 +87,6 @@ jobs:
       - name: Upload Merged PDF to Cloud Drive (Auto-Rename)
         run: |
           echo "Uploading file ${{ env.OUTPUT_NAME }} to 1drive:Merged_Book"
-          # Dùng 'move' và '--auto-rename' để tránh ghi đè
           rclone move "${{ env.OUTPUT_NAME }}" "1drive:Merged_Book" --auto-rename --progress
           echo "Upload complete."
 
@@ -89,8 +94,6 @@ jobs:
         id: get_link
         run: |
           echo "Attempting to create public link..."
-          # Chúng ta vẫn dùng OUTPUT_NAME để tạo link, rclone đủ thông minh để tìm
-          # file đã được đổi tên (nếu có) và tạo link cho nó.
           LINK=$(rclone link "1drive:Merged_Book/${{ env.OUTPUT_NAME }}" || true)
           
           if [ -n "$LINK" ]; then
