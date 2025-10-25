@@ -1,0 +1,67 @@
+name: "PDF Merger: Download, Merge, and Upload"
+
+on:
+  workflow_dispatch:
+    inputs:
+      rclone_remote_path:
+        description: 'Source Path (e.g., "MyOneDrive:Docs/MedicalBook")'
+        required: true
+        type: string
+
+jobs:
+  build-and-merge:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Install Rclone
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y rclone
+
+      - name: Install Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10' 
+
+      - name: Install Python PDF Library
+        run: pip install pypdf
+
+      - name: Checkout Repository Code
+        uses: actions/checkout@v4
+        with:
+          repository: 'proplayer1131/PDF-MERGED'
+          token: ${{ secrets.ACTION_TOKEN }}
+
+      - name: Configure Rclone
+        env:
+          RCLONE_CONFIG_BASE64: ${{ secrets.RCLONE_CONFIG_BASE64 }}
+        run: |
+          echo "Configuring Rclone..."
+          mkdir -p ~/.config/rclone
+          echo "$RCLONE_CONFIG_BASE64" | base64 --decode > ~/.config/rclone/rclone.conf
+          chmod 600 ~/.config/rclone/rclone.conf
+          echo "Rclone configured successfully."
+
+      - name: Set Automatic Output Filename
+        run: |
+          FILENAME=$(basename "${{ github.event.inputs.rclone_remote_path }}")
+          echo "Source directory name is: $FILENAME"
+          echo "OUTPUT_NAME=${FILENAME}.pdf" >> $GITHUB_ENV
+          echo "Output filename set to: ${FILENAME}.pdf"
+
+      - name: Download PDF Files from Cloud
+        run: |
+          mkdir -p ./input_pdfs
+          echo "Downloading files from: ${{ github.event.inputs.rclone_remote_path }}"
+          rclone copy "${{ github.event.inputs.rclone_remote_path }}" ./input_pdfs --include "*.pdf" --progress
+          echo "Download complete."
+
+      - name: Run Python Script to Merge PDFs
+        run: |
+          python merge_pdfs.py ./input_pdfs "${{ env.OUTPUT_NAME }}"
+
+      - name: Upload Merged PDF to Cloud Drive
+        run: |
+          echo "Uploading file ${{ env.OUTPUT_NAME }} to 1drive:Merged_Book"
+          rclone copy "${{ env.OUTPUT_NAME }}" "1drive:Merged_Book" --progress
+          echo "Upload complete."
