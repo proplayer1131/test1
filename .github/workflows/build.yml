@@ -63,6 +63,8 @@ jobs:
       - name: Run ROM Build Process
         env:
           RCLONE_CONF: ${{ secrets.RCLONE_CONF }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN2 }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID2 }}
         run: |
           chmod +x build.sh scripts/*.sh
           ./build.sh "${{ github.event.inputs.ROM_URL }}"
