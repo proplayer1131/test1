@@ -1,10 +1,14 @@
-name: "PDF Merger: Download, Merge, and Upload"
+name: "PDF Merger: Download from URL and Upload"
 
 on:
   workflow_dispatch:
     inputs:
-      rclone_remote_path:
-        description: 'Source Path (e.g., "MyOneDrive:Docs/MedicalBook")'
+      share_url:
+        description: 'Public URL (Google Drive or OneDrive/SharePoint)'
+        required: true
+        type: string
+      output_filename:
+        description: 'Desired Output Name (e.g., "MyBook.pdf")'
         required: true
         type: string
 
@@ -28,10 +32,7 @@ jobs:
 
       - name: Checkout Repository Code
         uses: actions/checkout@v4
-        with:
-          repository: 'proplayer1131/PDF-MERGED'
-          token: ${{ secrets.ACTION_TOKEN }}
-      
+
       - name: Configure Rclone
         env:
           RCLONE_CONFIG_BASE64: ${{ secrets.RCLONE_CONFIG_BASE64 }}
@@ -42,45 +43,59 @@ jobs:
           chmod 600 ~/.config/rclone/rclone.conf
           echo "Rclone configured successfully."
 
-      - name: Set Automatic Output Filename
-        run: |
-          FILENAME=$(basename "${{ github.event.inputs.rclone_remote_path }}")
-          echo "Source directory name is: $FILENAME"
-          echo "OUTPUT_NAME=${FILENAME}.pdf" >> $GITHUB_ENV
-          echo "Output filename set to: ${FILENAME}.pdf"
-
-      - name: Download PDF Files from Cloud
+      - name: Download PDF Files from Public URL (Auto-Detect)
         run: |
           mkdir -p ./input_pdfs
-          echo "Downloading files from: ${{ github.event.inputs.rclone_remote_path }}"
-          rclone copy "${{ github.event.inputs.rclone_remote_path }}" ./input_pdfs --include "*.pdf" --progress
+          echo "Downloading files from URL..."
+          URL="${{ github.event.inputs.share_url }}"
+
+          if [[ "$URL" == *"drive.google.com"* ]]; then
+            echo "Google Drive link detected."
+            rclone copy "drive(url='$URL',type=drive):" ./input_pdfs --include "*.pdf" --progress --drive-acknowledge-abuse
+          
+          elif [[ "$URL" == *"sharepoint.com"* || "$URL" == *"1drv.ms"* ]]; then
+            echo "OneDrive/SharePoint link detected."
+            rclone copy "onedrive(link='$URL',type=onedrive):" ./input_pdfs --include "*.pdf" --progress
+          
+          else
+            echo "ERROR: Unknown link type."
+            exit 1
+          fi
+          
           echo "Download complete."
+          ls -l ./input_pdfs
+
+      - name: Set Output Filename
+        run: |
+          NAME="${{ github.event.inputs.output_filename }}"
+          if [[ "$NAME" != *.pdf ]]; then
+            NAME="${NAME}.pdf"
+          fi
+          echo "Output filename set to: $NAME"
+          echo "OUTPUT_NAME=$NAME" >> $GITHUB_ENV
 
       - name: Run Python Script to Merge PDFs
         run: |
           python merge_pdfs.py ./input_pdfs "${{ env.OUTPUT_NAME }}"
 
-      - name: Upload Merged PDF to Cloud Drive
+      - name: Upload Merged PDF to Cloud Drive (Auto-Rename)
         run: |
           echo "Uploading file ${{ env.OUTPUT_NAME }} to 1drive:Merged_Book"
-          rclone copy "${{ env.OUTPUT_NAME }}" "1drive:Merged_Book" --progress
+          # Dùng 'move' và '--auto-rename' để tránh ghi đè
+          rclone move "${{ env.OUTPUT_NAME }}" "1drive:Merged_Book" --auto-rename --progress
           echo "Upload complete."
 
-      # --- ĐÃ CẬP NHẬT BƯỚC NÀY ---
       - name: Generate and Mask Public Link
         id: get_link
         run: |
           echo "Attempting to create public link..."
-          # Lấy link từ rclone
+          # Chúng ta vẫn dùng OUTPUT_NAME để tạo link, rclone đủ thông minh để tìm
+          # file đã được đổi tên (nếu có) và tạo link cho nó.
           LINK=$(rclone link "1drive:Merged_Book/${{ env.OUTPUT_NAME }}" || true)
           
-          # Kiểm tra xem có link không
           if [ -n "$LINK" ]; then
             echo "Link generated. Masking from logs..."
-            # --- LỆNH CHE LOG QUAN TRỌNG ---
-            # Yêu cầu GitHub Actions che chuỗi này ở tất cả log
             echo "::add-mask::$LINK"
-            # Lưu link vào biến môi trường
             echo "DOWNLOAD_LINK=$LINK" >> $GITHUB_ENV
           else
             echo "Could not generate link. Proceeding without it."
@@ -97,7 +112,9 @@ jobs:
             ✅ **GỘP FILE THÀNH CÔNG!**
 
             **Tên sách:** `${{ env.OUTPUT_NAME }}`
-            **Nguồn:** `${{ github.event.inputs.rclone_remote_path }}`
+            **(Nếu trùng tên, file có thể đã được tự động đổi tên thành `(1)`, `(2)`...)**
+
+            **Nguồn:** `(Public URL)`
             **Đích:** `1drive:Merged_Book`
 
             [Nhấn để tải về 🚀](${{ env.DOWNLOAD_LINK }})
